@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  /* Las fuentes las inyecta next/font (ver app/layout.tsx) vía estas variables. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-bricolage), var(--font-inter), sans-serif;
+  --font-mono: var(--font-space-mono), ui-monospace, monospace;
+
+  --color-ink-950: #0a0a0c;
+  --color-ink-900: #101015;
+  --color-ink-850: #15151c;
+  --color-ink-800: #1b1b23;
+  --color-line: #262430;
+
+  --color-brand-300: #ffd98a;
+  --color-brand-400: #f6b53c;
+  --color-brand-500: #e09a22;
+  --color-brand-600: #b9781a;
+  --color-accent: #c9a86a;
+
+  --color-ok: #34d399;
+  --color-warn: #fbbf24;
+  --color-bad: #f87171;
+}
+
+* { scrollbar-width: thin; scrollbar-color: #262430 transparent; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--color-ink-950);
+  color: #e7e3da;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+.font-display { font-family: var(--font-display); letter-spacing: -0.02em; }
+.font-mono { font-family: var(--font-mono); }
+
+.card { background: var(--color-ink-900); border: 1px solid var(--color-line); border-radius: 0.75rem; }
+.panel { background: var(--color-ink-900); border: 1px solid var(--color-line); }
+.hoverable { transition: background .15s, border-color .15s; }
+.hoverable:hover { background: rgba(255,255,255,.03); }
+
+.pill { display:inline-flex; align-items:center; gap:.35rem; border-radius:999px; padding:.12rem .55rem; font-size:.7rem; font-weight:600; }
+.dot { width:.5rem; height:.5rem; border-radius:999px; }
+
+.scroll-y { overflow-y:auto; }
+
+@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.35} }
+.animate-live { animation: pulse-dot 1.6s ease-in-out infinite; }
+@keyframes pop { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+.animate-pop { animation: pop .3s ease both; }
+
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important}}

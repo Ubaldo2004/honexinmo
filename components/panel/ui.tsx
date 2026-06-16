@@ -1,0 +1,43 @@
+// Átomos compartidos del panel (server-safe). Portados de honex-app.
+import type { ReactNode } from "react";
+import type { Prioridad, EstadoConversacion } from "@/lib/data/types";
+
+export function Page({ children }: { children: ReactNode }) {
+  return <div className="h-full overflow-y-auto p-4 md:p-6">{children}</div>;
+}
+
+export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={"card " + className}>{children}</div>;
+}
+
+export function F({ l, children }: { l: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-zinc-500">{l}</span>
+      <div className="font-medium">{children}</div>
+    </div>
+  );
+}
+
+export function A({ i: Icon, t, primary }: { i: (p: { className?: string }) => ReactNode; t: string; primary?: boolean }) {
+  return (
+    <button className={"flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition " + (primary ? "border-brand-400/50 bg-brand-400/15 text-brand-200" : "border-line text-zinc-300 hover:bg-white/3")}>
+      <Icon className="h-4 w-4" /> {t}
+    </button>
+  );
+}
+
+export const prio: Record<Prioridad, string> = {
+  critical: "text-bad bg-bad/10",
+  high: "text-warn bg-warn/10",
+  medium: "text-brand-300 bg-brand-400/10",
+  low: "text-zinc-400 bg-white/5",
+};
+
+export const estadoPill: Record<EstadoConversacion, { c: string; t: string }> = {
+  bot: { c: "bg-ok/10 text-ok", t: "bot activo" },
+  handoff: { c: "bg-bad/15 text-bad", t: "handoff" },
+  visita: { c: "bg-warn/15 text-warn", t: "coordinar visita" },
+  seguimiento: { c: "bg-sky-400/15 text-sky-300", t: "seguimiento" },
+  operacion: { c: "bg-white/8 text-zinc-300", t: "operación · bot OFF" },
+};
