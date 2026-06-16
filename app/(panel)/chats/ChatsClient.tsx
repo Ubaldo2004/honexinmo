@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as I from "@/components/icons";
 import { F, estadoPill, anclaData, anclaLabel, type AnclaProp } from "@/components/panel/ui";
 import type { Conversacion, MensajeHilo, Resultado } from "@/lib/data/types";
-import { enviarMensaje, crearChat, asignarVendedor, corregirUltimoMensaje } from "./actions";
+import { enviarMensaje, crearChat, asignarVendedor, corregirUltimoMensaje, marcarLeido, reactivarBot } from "./actions";
 
 // MVP: un solo vendedor. Después sale de la tabla `vendedores`/`usuarios`.
 const VENDEDORES = ["Ubaldo"];
@@ -27,9 +27,12 @@ export default function ChatsClient({
   resultados: Resultado[];
   initialId?: string;
 }) {
-  const [convList, setConvList] = useState<Conversacion[]>(conversaciones);
+  const initialConv = conversaciones.find((c) => c.id === initialId) ?? conversaciones[0];
+  const [convList, setConvList] = useState<Conversacion[]>(
+    initialConv ? conversaciones.map((c) => (c.id === initialConv.id ? { ...c, unread: 0 } : c)) : conversaciones
+  );
   const [conv, setConv] = useState<Conversacion | undefined>(
-    conversaciones.find((c) => c.id === initialId) ?? conversaciones[0]
+    initialConv ? { ...initialConv, unread: 0 } : undefined
   );
   const [extra, setExtra] = useState<Record<string, MensajeHilo[]>>({});
   const [tomadas, setTomadas] = useState<Record<string, boolean>>({});
@@ -43,6 +46,7 @@ export default function ChatsClient({
   const [corrigiendo, setCorrigiendo] = useState(false);
   const [corrText, setCorrText] = useState("");
   const [guardandoCorr, setGuardandoCorr] = useState(false);
+  const [reactivando, setReactivando] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const hilo = conv ? [...(hilos[conv.id] ?? []), ...(extra[conv.id] ?? [])] : [];
@@ -59,6 +63,22 @@ export default function ChatsClient({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [hilo.length, conv?.id]);
+
+  // Al abrir una conversación se marca como leída → resetea el contador de sin-leer.
+  function marcarLeidoLocal(cid: string) {
+    setConvList((prev) => prev.map((c) => (c.id === cid ? { ...c, unread: 0 } : c)));
+    setConv((c) => (c && c.id === cid ? { ...c, unread: 0 } : c));
+    marcarLeido(cid).catch(() => {});
+  }
+  function abrirConv(c: Conversacion) {
+    setConv(c);
+    if (c.unread > 0) marcarLeidoLocal(c.id);
+  }
+  // El chat abierto al cargar ya arranca en 0 (arriba); acá solo avisamos al server.
+  useEffect(() => {
+    if (initialConv && initialConv.unread > 0) marcarLeido(initialConv.id).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function crear() {
     const nombre = nuevo.trim() || "Nuevo lead";
@@ -103,6 +123,20 @@ export default function ChatsClient({
     }
     setConv((c) => (c ? { ...c, asignado: vendedor } : c));
     setConvList((prev) => prev.map((c) => (c.id === cid ? { ...c, asignado: vendedor } : c)));
+  }
+
+  async function reactivar() {
+    if (!conv || reactivando) return;
+    const cid = conv.id;
+    setReactivando(true);
+    if (conv.estado !== "bot") {
+      const res = await reactivarBot(cid);
+      if (!res.ok) { alert(res.error ?? "No se pudo reactivar el bot"); setReactivando(false); return; }
+    }
+    setConv((c) => (c ? { ...c, estado: "bot", reason: undefined, asignado: "bot" } : c));
+    setConvList((prev) => prev.map((c) => (c.id === cid ? { ...c, estado: "bot", asignado: "bot" } : c)));
+    setTomadas((p) => ({ ...p, [cid]: false }));
+    setReactivando(false);
   }
 
   function abrirCorregir() {
@@ -150,7 +184,7 @@ export default function ChatsClient({
             </div>
           )}
           {convList.map((c) => (
-            <button key={c.id} onClick={() => setConv(c)} className={"hoverable flex w-full items-center gap-3 border-b border-line/60 px-3 py-3 text-left " + (conv?.id === c.id ? "bg-brand-400/8" : "")}>
+            <button key={c.id} onClick={() => abrirConv(c)} className={"hoverable flex w-full items-center gap-3 border-b border-line/60 px-3 py-3 text-left " + (conv?.id === c.id ? "bg-brand-400/8" : "")}>
               <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/5 font-mono text-xs text-zinc-300">{c.nombre.slice(0, 2)}</div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between"><span className="truncate text-sm font-semibold">{c.nombre}</span><span className="text-[10px] text-zinc-600">{c.t}</span></div>
@@ -253,6 +287,15 @@ export default function ChatsClient({
 
             <div className="mt-5 border-t border-line pt-4">
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Acciones</div>
+              {!(conv.estado === "bot" && !tomadas[conv.id]) && (
+                <button
+                  onClick={reactivar}
+                  disabled={reactivando}
+                  className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg border border-ok/40 bg-ok/10 px-3 py-2 text-xs font-semibold text-ok transition hover:bg-ok/20 disabled:opacity-50"
+                >
+                  🤖 {reactivando ? "Reactivando…" : "Reactivar el bot"}
+                </button>
+              )}
               {!corrigiendo ? (
                 <button
                   onClick={abrirCorregir}

@@ -89,6 +89,26 @@ export async function asignarVendedor(
   return { ok: true };
 }
 
+// Reactiva el bot en una conversación: vuelve a estado "bot" → el bot retoma el
+// auto-respondido por Telegram. Limpia el motivo del handoff.
+export async function reactivarBot(conversacionId: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("conversaciones")
+    .update({ estado: "bot", reason: null, asignado_a: null, asignado_label: "bot" })
+    .eq("id", conversacionId);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+// Marca la conversación como leída (unread = 0). Se llama al abrir el chat en el panel.
+export async function marcarLeido(conversacionId: string): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("conversaciones").update({ unread: 0 }).eq("id", conversacionId);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
 // Corrige el último mensaje del bot: lo EDITA en Telegram (editMessageText, así el
 // cliente ve el texto corregido en el mismo mensaje) y actualiza el registro del panel.
 export async function corregirUltimoMensaje(
