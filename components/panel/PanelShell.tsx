@@ -50,7 +50,7 @@ export default function PanelShell({
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-ink-950 text-[#e7e3da]">
+    <div className="flex h-[100dvh] w-screen overflow-hidden bg-ink-950 text-[#e7e3da]">
       <aside className={"fixed z-30 flex h-full w-60 shrink-0 flex-col border-r border-line bg-ink-900 transition-transform md:static md:translate-x-0 " + (nav ? "translate-x-0" : "-translate-x-full")}>
         <div className="flex items-center gap-2.5 px-5 py-4">
           <I.Mark className="h-8 w-8" />

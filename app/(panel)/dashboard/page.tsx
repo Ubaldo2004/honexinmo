@@ -15,6 +15,14 @@ export default async function DashboardPage() {
     data.getDemanda(),
   ]);
 
+  // Demanda real por hora: normalizamos por el máximo y calculamos el pico.
+  const maxD = Math.max(1, ...demanda);
+  const totalD = demanda.reduce((a, b) => a + b, 0);
+  const peakH = totalD ? demanda.indexOf(Math.max(...demanda)) : -1;
+  const picoTxt = peakH >= 0
+    ? `Pico ${peakH}-${(peakH + 1) % 24}h → mejor horario para pautar ADS.`
+    : "Sin actividad todavía — se llena a medida que escriben al bot.";
+
   return (
     <Page>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
@@ -65,8 +73,8 @@ export default async function DashboardPage() {
         </Card>
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between"><div className="font-semibold">Demanda · 24h</div><I.Trending className="h-4 w-4 text-brand-400" /></div>
-          <div className="flex h-28 items-end gap-1">{demanda.map((v, i) => <div key={i} className="flex-1 rounded-t bg-gradient-to-t from-brand-600/30 to-brand-400" style={{ height: (v / 19) * 100 + "%" }} />)}</div>
-          <div className="mt-2 text-[10px] text-zinc-600">Pico 18-19h → mejor horario para pautar ADS.</div>
+          <div className="flex h-28 items-end gap-1">{demanda.map((v, i) => <div key={i} className="flex-1 rounded-t bg-gradient-to-t from-brand-600/30 to-brand-400" style={{ height: Math.max(2, (v / maxD) * 100) + "%" }} title={`${i}:00 · ${v}`} />)}</div>
+          <div className="mt-2 text-[10px] text-zinc-600">{picoTxt}</div>
         </Card>
       </div>
     </Page>

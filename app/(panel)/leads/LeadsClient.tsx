@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Card } from "@/components/panel/ui";
+import { Card, anclaLabel } from "@/components/panel/ui";
 import type { Lead } from "@/lib/data/types";
 import { actualizarLead, eliminarLead } from "./actions";
 
@@ -102,7 +102,7 @@ export default function LeadsClient({ leads: initial }: { leads: Lead[] }) {
                       <span className="font-mono text-xs text-zinc-400">{l.score}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-zinc-300">{l.ancla || "—"}</td>
+                  <td className="px-4 py-3 text-zinc-300">{anclaLabel(l.ancla)}</td>
                   <td className="px-4 py-3"><span className="font-mono text-[11px] text-zinc-500">{l.origen || "—"}</span></td>
                   <td className="px-4 py-3"><span className={l.asignado === "bot" ? "text-brand-300" : "text-zinc-300"}>{l.asignado}</span></td>
                   <td className="px-4 py-3">

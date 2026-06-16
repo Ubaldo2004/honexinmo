@@ -18,11 +18,12 @@ import type {
   Ancla,
   Operacion,
   Visita,
+  VisitaItem,
   Rol,
   Prioridad,
   EstadoConversacion,
 } from "./types";
-import { PIEZAS, DEMANDA, ROLES } from "./seed-data";
+import { PIEZAS, ROLES } from "./seed-data";
 
 function precioStr(n: number | null, moneda: string | null): string {
   if (n == null) return "";
@@ -35,13 +36,35 @@ const TIPO_ACCION: Record<string, string> = {
   operacion: "Operación",
 };
 
+// Mood = situación del lead, derivada del estado real de la conversación.
+const MOOD_POR_ESTADO: Record<string, string> = {
+  bot: "En conversación",
+  visita: "Espera visita",
+  handoff: "Necesita atención",
+  seguimiento: "En seguimiento",
+  operacion: "Avanzando operación",
+};
+
 export class SupabaseRepository implements HonexRepository {
   constructor(private db: SupabaseClient) {}
 
   // ---- estáticos (config / presentación) ----
   async getPiezas(): Promise<Pieza[]> { return PIEZAS; }
-  async getDemanda(): Promise<number[]> { return DEMANDA; }
   async getRoles(): Promise<Rol[]> { return ROLES; }
+
+  // ---- Demanda real: mensajes entrantes por hora del día (zona AR) ----
+  async getDemanda(): Promise<number[]> {
+    const buckets = new Array(24).fill(0);
+    const { data } = await this.db.from("mensajes").select("enviado_at").eq("who", "in");
+    const fmt = new Intl.DateTimeFormat("es-AR", { hour: "2-digit", hour12: false, timeZone: "America/Argentina/Buenos_Aires" });
+    for (const m of data ?? []) {
+      const iso = m.enviado_at as string | null;
+      if (!iso) continue;
+      const h = parseInt(fmt.format(new Date(iso)), 10) % 24;
+      if (Number.isFinite(h) && h >= 0 && h < 24) buckets[h]++;
+    }
+    return buckets;
+  }
 
   // ---- KPIs derivados de la data real del tenant (RLS) ----
   async getKpis(): Promise<Kpi[]> {
@@ -98,7 +121,7 @@ export class SupabaseRepository implements HonexRepository {
         reason: (r.reason as string) ?? undefined,
         priority: (r.priority as Prioridad) ?? undefined,
         asignado: (r.asignado_label as string) ?? "bot",
-        mood: (l.mood as string) ?? "",
+        mood: MOOD_POR_ESTADO[r.estado as string] ?? (l.mood as string) ?? "—",
         score: (l.score as number) ?? 0,
       };
     });
@@ -117,6 +140,7 @@ export class SupabaseRepository implements HonexRepository {
     if (error) throw error;
     const out: Record<string, MensajeHilo[]> = {};
     for (const m of data ?? []) {
+      if (m.card === "resultados_data") continue; // estado interno del bot (no se muestra)
       const cid = m.conversacion_id as string;
       (out[cid] ??= []).push({
         who: m.who as "bot" | "in",
@@ -196,17 +220,22 @@ export class SupabaseRepository implements HonexRepository {
   async getBusquedas(): Promise<Busqueda[]> {
     const { data, error } = await this.db
       .from("busquedas")
-      .select("lead_label, criterios, ancla, fuentes, resultados, hora_label")
+      .select("lead_label, criterios, ancla, fuentes, resultados, hora_label, leads(ancla)")
       .order("creada_at", { ascending: false });
     if (error) throw error;
-    return (data ?? []).map((r): Busqueda => ({
-      lead: (r.lead_label as string) ?? "",
-      criterios: (r.criterios as string) ?? "",
-      ancla: (r.ancla as string) ?? "",
-      fuentes: (r.fuentes as string) ?? "",
-      resultados: (r.resultados as number) ?? 0,
-      t: (r.hora_label as string) ?? "",
-    }));
+    return (data ?? []).map((r): Busqueda => {
+      const l = (Array.isArray(r.leads) ? r.leads[0] : r.leads) as { ancla?: string } | null;
+      // la ancla del lead (la propiedad que lo trajo) es lo que mostramos; si está,
+      // la página le aplica anclaLabel(). Fallback a la columna ancla de la búsqueda.
+      return {
+        lead: (r.lead_label as string) ?? "",
+        criterios: (r.criterios as string) ?? "",
+        ancla: (l?.ancla as string) ?? (r.ancla as string) ?? "",
+        fuentes: (r.fuentes as string) ?? "",
+        resultados: (r.resultados as number) ?? 0,
+        t: (r.hora_label as string) ?? "",
+      };
+    });
   }
 
   async getAnclas(): Promise<Ancla[]> {
@@ -264,5 +293,27 @@ export class SupabaseRepository implements HonexRepository {
       transcripto: !!data.transcripto,
       analisis: data.analisis as Visita["analisis"],
     };
+  }
+
+  async getVisitas(): Promise<VisitaItem[]> {
+    const { data, error } = await this.db
+      .from("visitas")
+      .select("id, lead_id, lead_label, prop, agente, fecha, audio_path, transcripto_texto, duracion_seg, leads(nombre)")
+      .order("creada_at", { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map((r): VisitaItem => {
+      const l = (Array.isArray(r.leads) ? r.leads[0] : r.leads) as { nombre?: string } | null;
+      return {
+        id: r.id as string,
+        leadId: (r.lead_id as string) ?? null,
+        lead: l?.nombre ?? (r.lead_label as string) ?? "—",
+        prop: (r.prop as string) ?? "",
+        agente: (r.agente as string) ?? "",
+        fecha: (r.fecha as string) ?? "",
+        audioPath: (r.audio_path as string) ?? null,
+        transcripto: (r.transcripto_texto as string) ?? null,
+        duracionSeg: (r.duracion_seg as number) ?? null,
+      };
+    });
   }
 }

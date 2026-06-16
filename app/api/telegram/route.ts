@@ -8,6 +8,7 @@
 import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import Anthropic from "@anthropic-ai/sdk";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -17,8 +18,13 @@ const SECRET = process.env.SUPABASE_SECRET_KEY!;
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 const SLUG = process.env.HONEX_TENANT_SLUG || "norte";
+// IA del bot: usa Anthropic (Claude) si hay ANTHROPIC_API_KEY; si no, cae a Gemini.
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5";
+const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : null;
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+// flash-lite tiene una cuota diaria free mucho más alta que flash (que quedó en 20/día).
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 const SEARCH_URL = process.env.N8N_SEARCH_WEBHOOK_URL || "https://n8n.tokko-finder.gachetponzellini.com/webhook/honex/search";
 const SEARCH_VENDEDOR = process.env.HONEX_SEARCH_VENDEDOR_ID || "25e94c02-03ee-4272-8003-57f6dcebd36c"; // Ubaldo
 const API = `https://api.telegram.org/bot${TOKEN}`;
@@ -39,9 +45,24 @@ function horaLabel() {
   return new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
 }
 
+// Tipo de cambio USD→ARS (dólar oficial, venta), cacheado por instancia.
+let DOLAR_CACHE: { value: number; at: number } | null = null;
+async function getDolar(): Promise<number> {
+  const now = Date.now();
+  if (DOLAR_CACHE && now - DOLAR_CACHE.at < 30 * 60 * 1000) return DOLAR_CACHE.value;
+  try {
+    const r = await fetch("https://dolarapi.com/v1/dolares/oficial");
+    const j = await r.json();
+    const v = Number(j?.venta);
+    if (v > 0) { DOLAR_CACHE = { value: v, at: now }; return v; }
+  } catch { /* usa fallback */ }
+  return DOLAR_CACHE?.value ?? 1000;
+}
+
 // ── IA del bot ───────────────────────────────────────────────
-function systemPrompt() {
+function systemPrompt(dolar: number, ancla: string | null, mostradas: string) {
   return `Sos el asistente virtual de ${INMO_NOMBRE}, una inmobiliaria de Rosario. Atendés por chat a compradores que vienen de una campaña.
+${ancla ? `\nCONTEXTO IMPORTANTE: este comprador llegó desde un aviso interesado en esta propiedad (ancla): "${ancla}". Tenela presente en toda la charla, referite a ella cuando sume, y si no aclara otra cosa asumí que busca algo parecido. Si pide algo distinto, seguilo igual.\n` : ""}
 
 Tu objetivo es conversar natural y cálido (tuteo rioplatense, mensajes cortos, algún emoji) y CALIFICAR bien al comprador ANTES de buscar. Datos que necesitás juntar:
 1) operación (venta o alquiler)
@@ -54,8 +75,9 @@ Cómo manejarte:
 - Hacé UNA sola pregunta por mensaje. No abrumes.
 - Si el comprador da MUY pocos datos (ej: solo "una casa", o solo una zona), NO busques todavía: pedile lo que falta, priorizando presupuesto y ambientes/dormitorios, que son los que más afinan la búsqueda.
 - Cuando tengas los 5 datos base, antes de buscar preguntá UNA vez si hay alguna preferencia importante (cochera, a estrenar, baños, balcón, patio, etc.). Si dice que no, o "mostrame lo que haya", buscá igual.
+- IMPORTANTE — el buscador trabaja en DÓLARES (USD). Si el comprador da el presupuesto en PESOS argentinos, convertilo a USD dividiendo por ${dolar} (dólar oficial de hoy) y poné el monto YA EN USD en el [BUSCAR:...]. Ejemplo: "hasta 200 millones de pesos" → hasta ${Math.round(200000000 / dolar)} USD. Si ya te lo da en dólares, usá ese número tal cual.
 - Cuando ya tengas un panorama razonable, respondé ÚNICAMENTE con una línea con este formato EXACTO, sin nada más:
-[BUSCAR: <frase con TODOS los datos: operación, tipo, zona, presupuesto, ambientes/dormitorios y preferencias>]
+[BUSCAR: <frase con TODOS los datos: operación, tipo, zona, presupuesto (en USD), ambientes/dormitorios y preferencias>]
 Ejemplo: [BUSCAR: Casa en venta en Funes, 3 dormitorios, 2 baños, con cochera, hasta 200000 USD]
 - Si después de ver resultados el comprador quiere agregar o cambiar detalles, incorporá lo nuevo y volvé a emitir un [BUSCAR: ...] actualizado.
 
@@ -63,68 +85,268 @@ Asignación de vendedor:
 - Cuando el comprador quiera AVANZAR con una propiedad (le interesa una, quiere visitarla, o pide hablar con alguien), ofrecele un vendedor que lo atienda: "Te asigno un vendedor para que coordine con vos 🙌 ¿Conocés a alguien de nuestro equipo? Decime el nombre. Si no, te asigno uno yo."
 - Cuando el comprador te diga el nombre de un vendedor, o te pida que le asignes uno (o diga que no conoce a ninguno), respondé ÚNICAMENTE con una línea con este formato EXACTO:
 [ASIGNAR: <nombre del vendedor; dejalo VACÍO si no sabe y querés que asignemos nosotros>]
-Ejemplos: [ASIGNAR: Ubaldo]  ·  si no sabe: [ASIGNAR: ]`;
+Ejemplos: [ASIGNAR: Ubaldo]  ·  si no sabe: [ASIGNAR: ]
+${mostradas ? `
+PROPIEDADES QUE YA LE MOSTRASTE (numeradas tal cual las ve el cliente):
+${mostradas}
+
+Manejo de estas propiedades:
+- Si el cliente elige o pregunta por una ("la 1", "la primera", "la de Funes"…), dale MÁS detalles de ESA usando SOLO los datos de arriba (no inventes nada que no esté), y preguntale si es la que quiere ir a ver.
+- Cuando el cliente muestre interés concreto en UNA propiedad de las mostradas ("la 1", "esta me gusta", "quiero ver la de Funes", etc.), respondé normal Y AGREGÁ al final de tu mensaje, en una línea aparte, esta etiqueta OCULTA que el cliente NO ve (la usa el sistema para registrar la propiedad de interés): [[INTERES: <NÚMERO de la opción elegida, ej: 1>]]. Tiene que ser el número tal cual aparece en la lista de arriba.
+- Si quiere cambiar a otra de la lista, mostrale los detalles de esa otra (y actualizá la etiqueta [[INTERES: <número>]] a la nueva opción).
+- Si NINGUNA le gustó, o pide ver MÁS / OTRAS / NUEVAS, no repreguntes de más: emití directamente un [BUSCAR: ...] (podés ampliar o variar zona/precio) — el sistema le va a traer propiedades DISTINTAS a las ya mostradas.` : ""}`;
 }
 
 type GeminiContent = { role: "user" | "model"; parts: { text: string }[] };
 
-async function llamarGemini(contents: GeminiContent[]) {
+// Mensaje que mandamos cuando la IA falla. OJO: NO se guarda en el historial ni
+// se usa como contexto — si no, la IA lo ve repetido y lo empieza a copiar (loop).
+const FALLBACK = "Uy, estoy con mucha demanda en este momento 🙏 Dame unos segundos y escribime de nuevo.";
+
+async function llamarGemini(contents: GeminiContent[], dolar: number, ancla: string | null, mostradas: string) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ system_instruction: { parts: [{ text: systemPrompt() }] }, contents }),
-  });
-  const json = await res.json();
-  if (!res.ok) {
+  const payload = JSON.stringify({ system_instruction: { parts: [{ text: systemPrompt(dolar, ancla, mostradas) }] }, contents });
+
+  // Reintenta ante 429 (rate limit) o 5xx. En el 429, Google manda en RetryInfo.retryDelay
+  // cuánto esperar ("46s") → lo respetamos, pero acotado al presupuesto de la función.
+  const inicio = Date.now();
+  const PRESUPUESTO_MS = 50_000; // margen contra maxDuration=60
+  for (let intento = 0; intento < 4; intento++) {
+    let res: Response;
+    try {
+      res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: payload });
+    } catch (e) {
+      console.error("gemini fetch:", (e as Error).message);
+      await new Promise((r) => setTimeout(r, 2000));
+      continue;
+    }
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) {
+      const text = (json?.candidates?.[0]?.content?.parts ?? []).map((p: { text: string }) => p.text).join("").trim();
+      return text || "¿Me contás un poco más qué estás buscando?";
+    }
+    if (res.status === 429 || res.status >= 500) {
+      let waitMs = 2500 * (intento + 1);
+      const details = json?.error?.details;
+      if (Array.isArray(details)) {
+        const ri = details.find((d: Record<string, unknown>) => String(d["@type"] ?? "").includes("RetryInfo"));
+        const secs = ri?.retryDelay ? parseFloat(String(ri.retryDelay)) : 0; // "46s" → 46
+        if (secs > 0) waitMs = Math.ceil(secs * 1000) + 500;
+      }
+      // Cap del wait: si Google pide esperar mucho (cuota diaria/minuto agotada),
+      // NO colgamos la función — mejor fallar rápido y que el cliente reintente.
+      waitMs = Math.min(waitMs, 8000);
+      if (waitMs > PRESUPUESTO_MS - (Date.now() - inicio)) {
+        console.error(`gemini ${res.status}: sin presupuesto para reintentar, corto`);
+        break;
+      }
+      console.error(`gemini ${res.status}, espero ${Math.round(waitMs / 1000)}s (intento ${intento + 1}/4)`);
+      await new Promise((r) => setTimeout(r, waitMs));
+      continue;
+    }
+    // error no recuperable (400/403/etc.)
     console.error("gemini:", JSON.stringify(json).slice(0, 300));
-    return "Disculpá, tuve un problemita. ¿Me lo repetís?";
+    break;
   }
-  const text = (json?.candidates?.[0]?.content?.parts ?? []).map((p: { text: string }) => p.text).join("").trim();
-  return text || "¿Me contás un poco más qué estás buscando?";
+  return FALLBACK;
 }
 
-type Prop = Record<string, unknown> & { precio?: number | null; moneda?: string; tipo?: string; ubicacion?: string; dormitorios?: number | null; banos?: number | null; sup_cubierta?: number | null };
+// Claude (Anthropic). El system prompt va aparte; el hilo se mapea a user/assistant.
+// El SDK reintenta solo ante 429/5xx (max_retries por defecto).
+async function llamarAnthropic(contents: GeminiContent[], dolar: number, ancla: string | null, mostradas: string) {
+  const messages = contents.map((c) => ({
+    role: (c.role === "user" ? "user" : "assistant") as "user" | "assistant",
+    content: c.parts.map((p) => p.text).join(""),
+  }));
+  try {
+    const msg = await anthropic!.messages.create({
+      model: ANTHROPIC_MODEL,
+      max_tokens: 1024,
+      system: systemPrompt(dolar, ancla, mostradas),
+      messages,
+    });
+    const text = msg.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim();
+    return text || "¿Me contás un poco más qué estás buscando?";
+  } catch (e) {
+    console.error("anthropic:", (e as Error).message);
+    return FALLBACK;
+  }
+}
+
+// Elige el proveedor: Claude si está configurado, si no Gemini.
+async function llamarLLM(contents: GeminiContent[], dolar: number, ancla: string | null, mostradas: string) {
+  if (anthropic) return llamarAnthropic(contents, dolar, ancla, mostradas);
+  if (GEMINI_KEY) return llamarGemini(contents, dolar, ancla, mostradas);
+  return FALLBACK;
+}
+
+type Prop = {
+  precio?: number | null; moneda?: string; tipo?: string; ubicacion?: string; direccion?: string;
+  dormitorios?: number | null; ambientes?: number | null; banos?: number | null; toilettes?: number | null;
+  cocheras?: number | null; sup_cubierta?: number | null; sup_total?: number | null; sup_terreno?: number | null;
+  antiguedad?: number | null; expensas?: number | null; condicion?: string | null; orientacion?: string | null;
+  disposicion?: string | null; match?: number; [k: string]: unknown;
+};
 
 async function buscarPropiedades(query: string): Promise<Prop[]> {
   try {
     const res = await fetch(SEARCH_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vendedor_id: SEARCH_VENDEDOR, filtros: query, limit: 5 }),
+      body: JSON.stringify({ vendedor_id: SEARCH_VENDEDOR, filtros: query, limit: 15 }),
     });
     const data = await res.json();
     const api = Array.isArray(data?.api?.propiedades) ? data.api.propiedades : [];
     const red = Array.isArray(data?.red?.propiedades) ? data.red.propiedades : [];
-    return [...api, ...red].slice(0, 5);
+    return [...api, ...red].slice(0, 15);
   } catch (e) {
     console.error("buscar:", (e as Error).message);
     return [];
   }
 }
 
-function formatearResultados(query: string, props: Prop[]) {
+// Clave para detectar propiedades repetidas entre búsquedas (traer "nuevas").
+function propKey(p: Prop): string {
+  return `${String(p.tipo ?? "").toLowerCase()}|${String(p.ubicacion ?? "").toLowerCase()}|${p.precio ?? ""}`;
+}
+
+// Resumen con TODOS los datos de una propiedad, para que el bot dé más detalle.
+function fichaPrompt(p: Prop, i: number): string {
+  const campos = [
+    p.direccion ? `dirección ${p.direccion}` : null,
+    p.precio != null ? `precio USD ${p.precio}` : null,
+    p.dormitorios ? `${p.dormitorios} dorm` : null,
+    p.banos ? `${p.banos} baños` : null,
+    p.toilettes ? `${p.toilettes} toilette` : null,
+    p.cocheras ? `${p.cocheras} cochera(s)` : null,
+    p.sup_cubierta ? `${p.sup_cubierta} m² cubiertos` : null,
+    p.sup_total ? `${p.sup_total} m² totales` : null,
+    p.sup_terreno ? `${p.sup_terreno} m² de terreno` : null,
+    p.antiguedad != null ? `${p.antiguedad} años de antigüedad` : null,
+    p.expensas ? `expensas ${p.expensas}` : null,
+    p.condicion ? `estado ${p.condicion}` : null,
+    p.orientacion ? `orientación ${p.orientacion}` : null,
+    p.disposicion ? `disposición ${p.disposicion}` : null,
+  ].filter(Boolean).join(", ");
+  return `${i + 1}. ${p.tipo || "Propiedad"} en ${p.ubicacion || "?"} — ${campos || "sin más datos"}`;
+}
+
+// Zona legible: "Argentina | Santa Fe | Rosario | Centro" → "Centro".
+function zonaCorta(u?: string): string {
+  if (!u) return "?";
+  const parts = String(u).split("|").map((s) => s.trim()).filter(Boolean);
+  return parts[parts.length - 1] || String(u);
+}
+
+// Preferencias que el cliente puede pedir → cómo detectarlas en el texto y en la propiedad.
+// pred(p) mira amenities (objeto que manda el motor) + tags + campos sueltos.
+const PREFERENCIAS: { keys: string[]; pred: (p: Prop, am: Record<string, unknown>) => boolean }[] = [
+  { keys: ["cochera", "garage", "garaje", "auto"], pred: (p, am) => !!(am.covered_parking || am.uncovered_parking) || (p.cocheras != null && Number(p.cocheras) > 0) },
+  { keys: ["balcón", "balcon"], pred: (_p, am) => !!am.balcony },
+  { keys: ["patio"], pred: (_p, am) => !!am.patio },
+  { keys: ["terraza"], pred: (_p, am) => !!am.terrace },
+  { keys: ["pileta", "piscina"], pred: (_p, am) => !!am.pool },
+  { keys: ["parrilla", "asador", "bbq"], pred: (_p, am) => !!am.BBQ },
+  { keys: ["a estrenar", "estrenar", "nuevo", "nueva"], pred: (p, am) => (p.antiguedad != null && Number(p.antiguedad) <= 1) || !!am.under_construction },
+  { keys: ["amoblado", "amueblado"], pred: (_p, am) => !!am.furnished },
+  { keys: ["gimnasio", "gym"], pred: (_p, am) => !!am.gym },
+  { keys: ["seguridad", "vigilancia"], pred: (_p, am) => !!(am.security || am.security_24h) },
+  { keys: ["sum"], pred: (_p, am) => !!am.sum },
+  { keys: ["luminoso", "luz natural"], pred: (_p, am) => !!am.bright },
+];
+
+// Criterios que pidió el cliente, extraídos del texto del [BUSCAR: ...].
+type Criterios = { presupuesto: number | null; ambientes: number | null; dormitorios: number | null; tipo: string | null; prefs: number[]; raw: string };
+function criteriosDeQuery(query: string): Criterios {
+  const q = query.toLowerCase();
+  // presupuesto = el número más grande (los precios son los números grandes del texto)
+  const nums = (q.match(/\d[\d.]*/g) || []).map((n) => parseInt(n.replace(/\./g, ""), 10)).filter((n) => n > 0);
+  const presupuesto = nums.length ? Math.max(...nums) : null;
+  const amb = q.match(/(\d+)\s*amb/);
+  const dorm = q.match(/(\d+)\s*(dorm|dormitorio)/);
+  let tipo: string | null = null;
+  for (const t of ["monoambiente", "departamento", "depto", "casa", "ph", "terreno", "local", "oficina", "galpón", "galpon", "cochera"]) {
+    if (q.includes(t)) { tipo = t === "depto" ? "departamento" : t; break; }
+  }
+  const prefs = PREFERENCIAS.map((pr, i) => (pr.keys.some((k) => q.includes(k)) ? i : -1)).filter((i) => i >= 0);
+  return { presupuesto, ambientes: amb ? parseInt(amb[1], 10) : null, dormitorios: dorm ? parseInt(dorm[1], 10) : null, tipo, prefs, raw: q };
+}
+
+// % de coincidencia 0–100 de una propiedad con lo que pidió el cliente.
+// El motor no devuelve match_score, así que lo calculamos acá (precio 33, ambientes 22, tipo 17, zona 13, prefs 15).
+function scoreMatch(c: Criterios, p: Prop): number {
+  let s = 0;
+  // precio (33)
+  if (c.presupuesto && p.precio != null) {
+    const pr = Number(p.precio);
+    if (pr <= c.presupuesto) s += 33;
+    else if (pr <= c.presupuesto * 1.15) s += 21;
+    else if (pr <= c.presupuesto * 1.35) s += 10;
+  } else s += 23;
+  // ambientes / dormitorios (22)
+  const objAmb = c.ambientes ?? (c.dormitorios != null ? c.dormitorios + 1 : null);
+  const propAmb = p.ambientes ?? (p.dormitorios != null ? Number(p.dormitorios) + 1 : null);
+  if (objAmb && propAmb) {
+    const d = Math.abs(objAmb - Number(propAmb));
+    s += d === 0 ? 22 : d === 1 ? 13 : d === 2 ? 5 : 0;
+  } else s += 15;
+  // tipo (17)
+  if (c.tipo && p.tipo) {
+    const pt = String(p.tipo).toLowerCase();
+    if (pt.includes(c.tipo) || c.tipo.includes(pt)) s += 17;
+  } else s += 11;
+  // zona (13): el barrio de la propiedad aparece en lo que pidió
+  const barrio = zonaCorta(p.ubicacion).toLowerCase();
+  if (barrio && barrio !== "?" && c.raw.includes(barrio)) s += 13;
+  else if (!barrio || barrio === "?") s += 8;
+  // preferencias (15): si pidió alguna, cuántas cumple. Si no pidió ninguna, neutro.
+  if (c.prefs.length) {
+    const am = (p.amenities && typeof p.amenities === "object" ? p.amenities : {}) as Record<string, unknown>;
+    const cumple = c.prefs.filter((i) => PREFERENCIAS[i].pred(p, am)).length;
+    s += Math.round((cumple / c.prefs.length) * 15);
+  } else s += 15;
+  return Math.max(0, Math.min(100, Math.round(s)));
+}
+
+function formatearResultados(query: string, props: Prop[], dolar: number) {
   if (!props.length) {
     return `Busqué "${query}" pero no encontré nada con esos criterios. ¿Ampliamos un poco la zona o el presupuesto?`;
   }
-  const lineas = props.map((p, i) => {
-    const precio = p.precio != null ? `${p.moneda || "USD"} ${Number(p.precio).toLocaleString("es-AR")}` : "Consultar";
+  const bloques = props.map((p, i) => {
+    let precio = "Consultar";
+    if (p.precio != null) {
+      const usd = Number(p.precio);
+      const ars = Math.round(usd * dolar);
+      precio = `${p.moneda || "USD"} ${usd.toLocaleString("es-AR")}  ·  ≈ $${ars.toLocaleString("es-AR")}`;
+    }
     const det = [
-      p.dormitorios ? `${p.dormitorios} dorm` : null,
-      p.banos ? `${p.banos} baños` : null,
-      p.sup_cubierta ? `${p.sup_cubierta} m²` : null,
-    ].filter(Boolean).join(" · ");
-    return `${i + 1}. ${p.tipo || "Propiedad"} en ${p.ubicacion || "?"} — ${precio}${det ? ` (${det})` : ""}`;
+      p.dormitorios ? `🛏 ${p.dormitorios} dorm` : null,
+      p.banos ? `🚿 ${p.banos} baños` : null,
+      p.sup_cubierta ? `📐 ${p.sup_cubierta} m²` : null,
+    ].filter(Boolean).join("  ·  ");
+    const match = typeof p.match === "number" ? `🎯 ${p.match}% coincidencia  ·  ` : "";
+    return `${i + 1}. ${match}${p.tipo || "Propiedad"} · ${zonaCorta(p.ubicacion)}\n💵 ${precio}${det ? `\n${det}` : ""}`;
   });
-  return `🔎 Tu búsqueda: ${query}\n\nEncontré estas opciones 👇\n\n${lineas.join("\n")}\n\n¿Te sirve alguna? Si querés afinar (más ambientes, cochera, otra zona u otro presupuesto) decime y busco de nuevo. También puedo coordinar una visita 🙂`;
+  return `🔎 Tu búsqueda: ${query}\n\nOrdené las ${props.length} que más coinciden con lo que buscás (mejor primero) 👇\n\n${bloques.join("\n\n")}\n\n¿Te sirve alguna? Si querés afinar (más ambientes, cochera, otra zona u otro presupuesto) decime y busco de nuevo. También puedo coordinar una visita 🙂`;
 }
 
-async function enviarTelegram(chatId: number | string, text: string) {
-  await fetch(`${API}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text }),
-  });
+// Devuelve el message_id de Telegram (para poder editar ese mensaje luego), o null.
+async function enviarTelegram(chatId: number | string, text: string): Promise<number | null> {
+  try {
+    const r = await fetch(`${API}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text }),
+    });
+    const j = await r.json().catch(() => ({}));
+    return (j?.result?.message_id as number) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function asignarConv(convId: string, leadId: string | null, vendedor: string) {
@@ -152,22 +374,58 @@ async function registrarBusqueda(leadId: string | null, criterios: string, resul
 }
 
 async function responderBot(convId: string, chatId: number | string) {
-  if (!GEMINI_KEY) return;
-  const { data: conv } = await db.from("conversaciones").select("estado, lead_id").eq("id", convId).maybeSingle();
+  if (!anthropic && !GEMINI_KEY) return;
+  const { data: conv } = await db.from("conversaciones").select("estado, lead_id, leads(ancla)").eq("id", convId).maybeSingle();
   if (!conv || conv.estado !== "bot") return;
+  const leadRow = (Array.isArray(conv.leads) ? conv.leads[0] : conv.leads) as { ancla?: string } | null | undefined;
+  const ancla = leadRow?.ancla ?? null;
 
   const { data: msgs } = await db
-    .from("mensajes").select("who, texto")
+    .from("mensajes").select("who, texto, card")
     .eq("conversacion_id", convId).order("enviado_at", { ascending: true });
 
+  // Propiedades ya mostradas (guardadas en mensajes internos card='resultados_data').
+  const shownKeys = new Set<string>();
+  let ultimasMostradas: Prop[] = [];
+  for (const m of msgs ?? []) {
+    if (m.card === "resultados_data" && m.texto) {
+      try {
+        const arr = JSON.parse(m.texto as string) as Prop[];
+        if (Array.isArray(arr)) {
+          arr.forEach((p) => shownKeys.add(propKey(p)));
+          ultimasMostradas = arr; // la última tanda = "las que ve ahora"
+        }
+      } catch { /* ignora */ }
+    }
+  }
+
+  // Contexto para la IA: el hilo real, sin los mensajes internos de datos y sin
+  // los mensajes de error/fallback (si no, la IA los ve repetidos y los copia → loop).
   let contents: GeminiContent[] = (msgs ?? [])
-    .filter((m) => m.texto)
+    .filter((m) => m.texto && m.card !== "resultados_data" && m.texto !== FALLBACK)
     .map((m) => ({ role: (m.who === "in" ? "user" : "model") as "user" | "model", parts: [{ text: m.texto as string }] }));
   const primerUser = contents.findIndex((c) => c.role === "user");
   if (primerUser < 0) return;
   contents = contents.slice(primerUser);
 
-  let reply = await llamarGemini(contents);
+  const dolar = await getDolar();
+  const mostradasTxt = ultimasMostradas.length ? ultimasMostradas.map((p, i) => fichaPrompt(p, i)).join("\n") : "";
+  let reply = await llamarLLM(contents, dolar, ancla, mostradasTxt);
+
+  // Etiqueta oculta de interés → guardamos la propiedad elegida como ancla del lead.
+  const mi = reply.match(/\[\[INTERES:\s*([\s\S]*?)\]\]/i);
+  if (mi) {
+    const raw = mi[1].trim();
+    reply = reply.replace(/\[\[INTERES:[\s\S]*?\]\]/i, "").trim();
+    if (conv.lead_id) {
+      // si es un número de opción, guardamos la FICHA completa (JSON) de esa propiedad;
+      // si no, guardamos el texto tal cual (fallback).
+      const idx = parseInt(raw, 10);
+      const elegida = Number.isFinite(idx) ? ultimasMostradas[idx - 1] : undefined;
+      const anclaValue = elegida ? JSON.stringify(elegida) : raw;
+      if (anclaValue) await db.from("leads").update({ ancla: anclaValue }).eq("id", conv.lead_id as string);
+    }
+  }
 
   const ma = reply.match(/\[ASIGNAR:\s*([\s\S]*?)\]/i);
   if (ma) {
@@ -179,17 +437,36 @@ async function responderBot(convId: string, chatId: number | string) {
     const m = reply.match(/\[BUSCAR:\s*([\s\S]+?)\]/i);
     if (m) {
       const query = m[1].trim();
-      const props = await buscarPropiedades(query);
-      reply = formatearResultados(query, props);
-      await registrarBusqueda((conv.lead_id as string) ?? null, query, props.length);
+      const encontradas = await buscarPropiedades(query);
+      // Priorizar las que NO se mostraron antes → traer "nuevas".
+      const nuevas = encontradas.filter((p) => !shownKeys.has(propKey(p)));
+      const pool = nuevas.length ? nuevas : encontradas;
+      // % de coincidencia con lo pedido + ordenar mejor primero (como el panel).
+      const crit = criteriosDeQuery(query);
+      const aMostrar = pool
+        .map((p) => ({ ...p, match: scoreMatch(crit, p) }))
+        .sort((a, b) => (b.match ?? 0) - (a.match ?? 0))
+        .slice(0, 5);
+      reply = formatearResultados(query, aMostrar, dolar);
+      await registrarBusqueda((conv.lead_id as string) ?? null, query, aMostrar.length);
+      // Guardar las mostradas como estado interno (no va a Telegram ni al panel).
+      if (aMostrar.length) {
+        await db.from("mensajes").insert({
+          inmobiliaria_id: INMO_ID, conversacion_id: convId,
+          who: "bot", system: true, card: "resultados_data", texto: JSON.stringify(aMostrar), ts_label: horaLabel(),
+        });
+      }
     }
   }
 
-  await enviarTelegram(chatId, reply);
+  const msgId = await enviarTelegram(chatId, reply);
+  // Si fue el mensaje de error, lo mandamos pero NO lo guardamos: así no envenena
+  // el contexto de la próxima respuesta (la IA lo veía repetido y lo copiaba).
+  if (reply === FALLBACK) return;
   const ts = horaLabel();
   await db.from("mensajes").insert({
     inmobiliaria_id: INMO_ID, conversacion_id: convId,
-    who: "bot", agent: "bottelegram", texto: reply, ts_label: ts,
+    who: "bot", agent: "bottelegram", texto: reply, ts_label: ts, canal_msg_id: msgId,
   });
   await db.from("conversaciones").update({ ultimo_mensaje: reply.slice(0, 80), ultimo_label: ts }).eq("id", convId);
 }
@@ -198,15 +475,22 @@ type TgChat = { id: number; title?: string };
 type TgFrom = { first_name?: string; last_name?: string; username?: string };
 type TgMessage = { chat: TgChat; from?: TgFrom; text?: string; caption?: string };
 
-async function findOrCreateLead(chat: TgChat, from?: TgFrom) {
+async function findOrCreateLead(chat: TgChat, from?: TgFrom, ancla?: string) {
   const chatId = String(chat.id);
-  const { data: ex } = await db.from("leads").select("id")
+  const { data: ex } = await db.from("leads").select("id, ancla")
     .eq("inmobiliaria_id", INMO_ID).eq("canal_user_id", chatId).maybeSingle();
-  if (ex) return ex.id as string;
+  if (ex) {
+    // si vuelve a entrar por otro aviso, actualizamos la propiedad-ancla
+    if (ancla && ancla !== ex.ancla) {
+      await db.from("leads").update({ ancla, origen: "Campaña" }).eq("id", ex.id as string);
+    }
+    return ex.id as string;
+  }
   const nombre = [from?.first_name, from?.last_name].filter(Boolean).join(" ") || from?.username || chat?.title || "Lead Telegram";
   const { data, error } = await db.from("leads").insert({
     inmobiliaria_id: INMO_ID, nombre, canal: "telegram", canal_user_id: chatId,
-    etapa: "Calificación", score: 0, asignado_label: "bottelegram", origen: "Telegram",
+    etapa: "Calificación", score: 0, asignado_label: "bottelegram",
+    origen: ancla ? "Campaña" : "Telegram", ancla: ancla ?? null,
   }).select("id").single();
   if (error) throw new Error("crear lead: " + error.message);
   return data.id as string;
@@ -223,11 +507,48 @@ async function findOrCreateConv(leadId: string) {
   return data.id as string;
 }
 
+// Convierte el payload del deep link en una etiqueta legible para la ancla.
+// "casa-funes-2d" → "Casa funes 2d" · "8011577" → "la propiedad #8011577"
+function prettifyAncla(payload: string): string {
+  const raw = payload.trim();
+  if (/^\d+$/.test(raw)) return `la propiedad #${raw}`;
+  let s = raw;
+  try { s = decodeURIComponent(raw); } catch { /* usa raw */ }
+  s = s.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : "esa propiedad";
+}
+
+// Saludo inicial (al hacer /start). Si vino con ancla, lo ancla en esa propiedad.
+async function saludoInicial(convId: string, chatId: number | string, ancla: string | null) {
+  const saludo = ancla
+    ? `¡Hola! 👋 Vi que te interesó ${ancla}. Soy el asistente de ${INMO_NOMBRE}. ¿La buscás para vos? Contame un poco qué estás necesitando y te ayudo 🙌`
+    : `¡Hola! 👋 Soy el asistente de ${INMO_NOMBRE}. Contame qué propiedad estás buscando (operación, zona, presupuesto) y te ayudo a encontrarla.`;
+  const msgId = await enviarTelegram(chatId, saludo);
+  const ts = horaLabel();
+  await db.from("mensajes").insert({
+    inmobiliaria_id: INMO_ID, conversacion_id: convId, who: "bot", agent: "bottelegram", texto: saludo, ts_label: ts, canal_msg_id: msgId,
+  });
+  await db.from("conversaciones").update({ ultimo_mensaje: saludo.slice(0, 80), ultimo_label: ts }).eq("id", convId);
+}
+
 async function handleMessage(msg: TgMessage) {
   if (!(await getInmo())) { console.error("sin tenant para slug", SLUG); return; }
-  const texto = msg.text ?? msg.caption ?? "[mensaje sin texto]";
-  const leadId = await findOrCreateLead(msg.chat, msg.from);
+  const rawText = (msg.text ?? msg.caption ?? "").trim();
+
+  // Deep link de campaña: /start <payload> → la propiedad-ancla del aviso.
+  const startMatch = rawText.match(/^\/start(?:\s+(.+))?$/i);
+  const ancla = startMatch && startMatch[1] ? prettifyAncla(startMatch[1].trim()) : undefined;
+
+  const leadId = await findOrCreateLead(msg.chat, msg.from, ancla);
   const convId = await findOrCreateConv(leadId);
+
+  if (startMatch) {
+    // el /start no se guarda como mensaje del cliente: respondemos un saludo anclado
+    await saludoInicial(convId, msg.chat.id, ancla ?? null);
+    return;
+  }
+
+  const texto = rawText || "[mensaje sin texto]";
   const ts = horaLabel();
   await db.from("mensajes").insert({
     inmobiliaria_id: INMO_ID, conversacion_id: convId, who: "in", texto, ts_label: ts,

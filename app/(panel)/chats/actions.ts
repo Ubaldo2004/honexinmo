@@ -89,6 +89,59 @@ export async function asignarVendedor(
   return { ok: true };
 }
 
+// Corrige el último mensaje del bot: lo EDITA en Telegram (editMessageText, así el
+// cliente ve el texto corregido en el mismo mensaje) y actualiza el registro del panel.
+export async function corregirUltimoMensaje(
+  conversacionId: string,
+  nuevoTexto: string
+): Promise<{ ok: boolean; texto?: string; error?: string }> {
+  const t = nuevoTexto.trim();
+  if (!t) return { ok: false, error: "vacío" };
+
+  const supabase = await createClient();
+
+  const { data: conv, error: e1 } = await supabase
+    .from("conversaciones")
+    .select("ultimo_mensaje, leads(canal, canal_user_id)")
+    .eq("id", conversacionId)
+    .maybeSingle();
+  if (e1 || !conv) return { ok: false, error: e1?.message ?? "conversación no encontrada" };
+
+  // último mensaje del bot que se mandó a Telegram (tiene canal_msg_id).
+  const { data: msgs } = await supabase
+    .from("mensajes")
+    .select("id, canal_msg_id, ts_label")
+    .eq("conversacion_id", conversacionId)
+    .eq("who", "bot")
+    .not("canal_msg_id", "is", null)
+    .order("enviado_at", { ascending: false })
+    .limit(1);
+  const last = (msgs ?? [])[0];
+  if (!last) return { ok: false, error: "No hay un mensaje del bot para corregir todavía." };
+
+  // editar en Telegram (mismo mensaje que ya vio el cliente).
+  const lead = (Array.isArray(conv.leads) ? conv.leads[0] : conv.leads) as
+    | { canal?: string; canal_user_id?: string } | null | undefined;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (lead?.canal === "telegram" && lead.canal_user_id && last.canal_msg_id && token) {
+    try {
+      await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: lead.canal_user_id, message_id: last.canal_msg_id, text: t }),
+      });
+    } catch {
+      // si Telegram falla, igual dejamos el texto corregido en el panel
+    }
+  }
+
+  const { error: e2 } = await supabase.from("mensajes").update({ texto: t }).eq("id", last.id);
+  if (e2) return { ok: false, error: e2.message };
+  await supabase.from("conversaciones").update({ ultimo_mensaje: t.slice(0, 80) }).eq("id", conversacionId);
+
+  return { ok: true, texto: t };
+}
+
 // Inserta un mensaje saliente (lo escribe el operador) en la conversación.
 // RLS: el insert sólo pasa si la conversación es del tenant del usuario (o super admin).
 export async function enviarMensaje(
@@ -101,10 +154,10 @@ export async function enviarMensaje(
 
   const supabase = await createClient();
 
-  // necesitamos el inmobiliaria_id de la conversación para el insert (NOT NULL + RLS check)
+  // inmobiliaria_id para el insert + el canal del lead para entregar el mensaje
   const { data: conv, error: e1 } = await supabase
     .from("conversaciones")
-    .select("inmobiliaria_id")
+    .select("inmobiliaria_id, estado, leads(canal, canal_user_id)")
     .eq("id", conversacionId)
     .maybeSingle();
   if (e1 || !conv) return { ok: false, error: e1?.message ?? "conversación no encontrada" };
@@ -119,11 +172,33 @@ export async function enviarMensaje(
   });
   if (error) return { ok: false, error: error.message };
 
-  // también dejamos la conversación con el último mensaje visible
-  await supabase
-    .from("conversaciones")
-    .update({ ultimo_mensaje: t, ultimo_label: tsLabel })
-    .eq("id", conversacionId);
+  // dejamos el último mensaje visible y, si la manejaba el bot, marcamos que un
+  // humano tomó la conversación → el bot deja de auto-responder por Telegram.
+  const convUpd: Record<string, unknown> = { ultimo_mensaje: t, ultimo_label: tsLabel };
+  if (conv.estado === "bot") {
+    convUpd.estado = "handoff";
+    convUpd.reason = "Un humano tomó la conversación";
+  }
+  await supabase.from("conversaciones").update(convUpd).eq("id", conversacionId);
+
+  // Entregar el mensaje al cliente por su canal (Telegram). Sin esto, lo que
+  // escribe el operador queda solo en el panel y el cliente nunca lo recibe.
+  const lead = (Array.isArray(conv.leads) ? conv.leads[0] : conv.leads) as
+    | { canal?: string; canal_user_id?: string }
+    | null
+    | undefined;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (lead?.canal === "telegram" && lead.canal_user_id && token) {
+    try {
+      await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: lead.canal_user_id, text: t }),
+      });
+    } catch {
+      // si Telegram falla, el mensaje igual quedó guardado en el panel
+    }
+  }
 
   return { ok: true };
 }

@@ -142,6 +142,19 @@ export interface Rol {
   d: string;
 }
 
+// Una visita grabada por el agente (lista del panel). Distinto de `Visita` (demo single).
+export interface VisitaItem {
+  id: string;
+  leadId: string | null;
+  lead: string;
+  prop: string;
+  agente: string;
+  fecha: string;
+  audioPath: string | null;
+  transcripto: string | null;
+  duracionSeg: number | null;
+}
+
 /**
  * Toda lectura/escritura del panel pasa por este repositorio — NUNCA por llamadas
  * directas en los componentes. Hoy: implementación mock. Mañana: Supabase.
@@ -163,5 +176,6 @@ export interface HonexRepository {
   getAnclas(): Promise<Ancla[]>;
   getOperaciones(): Promise<Operacion[]>;
   getVisita(): Promise<Visita>;
+  getVisitas(): Promise<VisitaItem[]>;
   getRoles(): Promise<Rol[]>;
 }

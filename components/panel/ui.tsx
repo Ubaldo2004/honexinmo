@@ -41,3 +41,30 @@ export const estadoPill: Record<EstadoConversacion, { c: string; t: string }> = 
   seguimiento: { c: "bg-sky-400/15 text-sky-300", t: "seguimiento" },
   operacion: { c: "bg-white/8 text-zinc-300", t: "operación · bot OFF" },
 };
+
+// Propiedad-ancla: puede ser texto plano (legacy/campaña) o un JSON con la ficha
+// completa de la propiedad que el cliente eligió. Estos helpers parsean ambos.
+export type AnclaProp = {
+  tipo?: string; ubicacion?: string; direccion?: string; precio?: number | null; moneda?: string;
+  ambientes?: number | null; dormitorios?: number | null; banos?: number | null; toilettes?: number | null;
+  sup_cubierta?: number | null; sup_total?: number | null; sup_terreno?: number | null; cocheras?: number | null;
+  antiguedad?: number | null; expensas?: number | string | null; condicion?: string | null;
+  orientacion?: string | null; disposicion?: string | null; origen?: string;
+  foto?: string | null; url?: string | null;
+};
+
+export function anclaData(ancla?: string | null): AnclaProp | null {
+  if (!ancla) return null;
+  const t = ancla.trim();
+  if (t.startsWith("{")) {
+    try { return JSON.parse(t) as AnclaProp; } catch { return null; }
+  }
+  return null;
+}
+
+export function anclaLabel(ancla?: string | null): string {
+  if (!ancla) return "—";
+  const d = anclaData(ancla);
+  if (d) return [d.tipo, d.ubicacion].filter(Boolean).join(" · ") || "Propiedad";
+  return ancla;
+}

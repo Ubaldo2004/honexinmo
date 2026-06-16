@@ -1,4 +1,4 @@
-import { Page, Card } from "@/components/panel/ui";
+import { Page, Card, anclaLabel } from "@/components/panel/ui";
 import { getRepository } from "@/lib/data";
 import { BuscarClient } from "./BuscarClient";
 
@@ -14,7 +14,7 @@ export default async function BusquedasPage() {
           <tbody>{busquedas.map((b, i) => (
             <tr key={i} className="hoverable border-b border-line/60">
               <td className="px-4 py-3 font-semibold">{b.lead}</td><td className="px-4 py-3 text-zinc-300">{b.criterios}</td>
-              <td className="px-4 py-3 text-zinc-400">{b.ancla}</td><td className="px-4 py-3 text-[11px] text-zinc-500">{b.fuentes}</td>
+              <td className="px-4 py-3 text-zinc-400">{anclaLabel(b.ancla)}</td><td className="px-4 py-3 text-[11px] text-zinc-500">{b.fuentes}</td>
               <td className="px-4 py-3 font-mono text-brand-300">{b.resultados}</td><td className="px-4 py-3 font-mono text-xs text-zinc-600">{b.t}</td>
             </tr>
           ))}</tbody>
