@@ -27,11 +27,6 @@ export default function LoginPage() {
     router.refresh();
   }
 
-  function quick(e: string) {
-    setEmail(e);
-    setPassword("Honex1234!");
-  }
-
   return (
     <div className="grid min-h-screen place-items-center bg-ink-950 px-4 text-[#e7e3da]">
       <div className="w-full max-w-sm">
@@ -62,23 +57,6 @@ export default function LoginPage() {
             {loading ? "Entrando…" : "Entrar"}
           </button>
         </form>
-
-        <div className="mt-4 rounded-lg border border-line bg-ink-900/60 p-3 text-[11px] text-zinc-500">
-          <div className="mb-1.5 font-semibold text-zinc-400">Usuarios demo (clic para autocompletar):</div>
-          {[
-            ["super@honex.test", "super admin · ve todo"],
-            ["bot@honexinmo.com", "bottelegram · recibe los leads (Norte)"],
-            ["ubaldo@honexinmo.com", "Ubaldo · vendedor (Norte)"],
-            ["admin@sur.test", "admin · Inmobiliaria Sur"],
-          ].map(([e, d]) => (
-            <button key={e} type="button" onClick={() => quick(e)}
-              className="flex w-full items-center justify-between rounded px-1.5 py-1 text-left hover:bg-white/5">
-              <span className="font-mono text-zinc-300">{e}</span>
-              <span className="text-zinc-600">{d}</span>
-            </button>
-          ))}
-          <div className="mt-1.5 px-1.5 text-zinc-600">contraseña: <span className="font-mono">Honex1234!</span></div>
-        </div>
       </div>
     </div>
   );

@@ -34,11 +34,26 @@ const db = createClient(SB_URL, SECRET, { auth: { persistSession: false, autoRef
 // Tenant resuelto una vez por instancia (las funciones "calientes" lo reutilizan).
 let INMO_ID: string | null = null;
 let INMO_NOMBRE = "la inmobiliaria";
+let INMO_VENDEDORES: string[] = []; // cuentas de Tokko (vendedor_id) del tenant, para rotar
+let VENDEDOR_IDX = 0;
 async function getInmo() {
   if (INMO_ID) return INMO_ID;
   const { data } = await db.from("inmobiliarias").select("id, nombre").eq("slug", SLUG).maybeSingle();
   if (data) { INMO_ID = data.id as string; INMO_NOMBRE = data.nombre as string; }
+  if (INMO_ID) {
+    const { data: us } = await db.from("usuarios").select("tokko_vendedor_id")
+      .eq("inmobiliaria_id", INMO_ID).not("tokko_vendedor_id", "is", null);
+    INMO_VENDEDORES = (us ?? []).map((u) => u.tokko_vendedor_id as string).filter(Boolean);
+  }
   return INMO_ID;
+}
+
+// Rota entre los vendedor_id de Tokko (uno por búsqueda) → no pega siempre a la misma cuenta.
+function siguienteVendedor(): string {
+  if (!INMO_VENDEDORES.length) return SEARCH_VENDEDOR;
+  const v = INMO_VENDEDORES[VENDEDOR_IDX % INMO_VENDEDORES.length];
+  VENDEDOR_IDX++;
+  return v;
 }
 
 function horaLabel() {
@@ -81,11 +96,12 @@ Cómo manejarte:
 Ejemplo: [BUSCAR: Casa en venta en Funes, 3 dormitorios, 2 baños, con cochera, hasta 200000 USD]
 - Si después de ver resultados el comprador quiere agregar o cambiar detalles, incorporá lo nuevo y volvé a emitir un [BUSCAR: ...] actualizado.
 
-Asignación de vendedor:
-- Cuando el comprador quiera AVANZAR con una propiedad (le interesa una, quiere visitarla, o pide hablar con alguien), ofrecele un vendedor que lo atienda: "Te asigno un vendedor para que coordine con vos 🙌 ¿Conocés a alguien de nuestro equipo? Decime el nombre. Si no, te asigno uno yo."
-- Cuando el comprador te diga el nombre de un vendedor, o te pida que le asignes uno (o diga que no conoce a ninguno), respondé ÚNICAMENTE con una línea con este formato EXACTO:
-[ASIGNAR: <nombre del vendedor; dejalo VACÍO si no sabe y querés que asignemos nosotros>]
-Ejemplos: [ASIGNAR: Ubaldo]  ·  si no sabe: [ASIGNAR: ]
+Coordinar la visita (cuando el comprador muestra INTERÉS REAL en una propiedad: quiere ir a verla, visitarla o avanzar):
+- PRIMERO preguntá su disponibilidad: "¡Buenísimo! Para coordinar la visita, ¿qué días te quedan bien y en qué franja, mañana o tarde?"
+- Cuando te dé su disponibilidad, respondé ÚNICAMENTE con estas DOS líneas (el cliente NO las ve; las usa el sistema para registrar cuándo puede y asignarle solo un vendedor libre para ese horario):
+[[DISPO: <días y franjas normalizados, ej: martes tarde, jueves mañana>]]
+[ASIGNAR: ]
+- El sistema elige automáticamente un vendedor disponible para ese horario; vos no tenés que preguntar por nombres. SOLO si el comprador pide un vendedor puntual por su nombre, poné ese nombre en el ASIGNAR (ej: [ASIGNAR: Ubaldo]); si no, dejalo VACÍO.
 ${mostradas ? `
 PROPIEDADES QUE YA LE MOSTRASTE (numeradas tal cual las ve el cliente):
 ${mostradas}
@@ -197,7 +213,7 @@ async function buscarPropiedades(query: string): Promise<Prop[]> {
     const res = await fetch(SEARCH_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vendedor_id: SEARCH_VENDEDOR, filtros: query, limit: 15 }),
+      body: JSON.stringify({ vendedor_id: siguienteVendedor(), filtros: query, limit: 15 }),
     });
     const data = await res.json();
     const api = Array.isArray(data?.api?.propiedades) ? data.api.propiedades : [];
@@ -349,16 +365,54 @@ async function enviarTelegram(chatId: number | string, text: string): Promise<nu
   }
 }
 
-async function asignarConv(convId: string, leadId: string | null, vendedor: string) {
+async function asignarConv(convId: string, leadId: string | null, vendedor: string, reason?: string) {
   // Resolver el uuid del vendedor (tabla usuarios) → habilita la RLS del operador.
   const { data: u } = await db.from("usuarios").select("id").eq("nombre", vendedor).eq("inmobiliaria_id", INMO_ID).maybeSingle();
   const asignadoA = (u?.id as string) ?? null;
   await db.from("conversaciones").update({
-    asignado_a: asignadoA, asignado_label: vendedor, estado: "visita", reason: `Derivado a ${vendedor}`,
+    asignado_a: asignadoA, asignado_label: vendedor, estado: "visita", reason: reason ?? `Derivado a ${vendedor}`,
   }).eq("id", convId);
   if (leadId) {
     await db.from("leads").update({ asignado_a: asignadoA, asignado_label: vendedor, etapa: "Visita" }).eq("id", leadId);
   }
+}
+
+// ── Match cliente ↔ vendedor por agenda (Fase 3) ──────────────
+const DIAS_SEM = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+function sinAcento(s: string) { return s.normalize("NFD").replace(/[̀-ͯ]/g, ""); }
+
+// "martes tarde, jueves mañana" → [{dia:"martes", franja:"tarde"}, ...] (días canónicos).
+function parseDispo(s: string): { dia: string; franja: string }[] {
+  const out: { dia: string; franja: string }[] = [];
+  for (const chunk of s.toLowerCase().split(/[,;]|\sy\s/)) {
+    const c = sinAcento(chunk);
+    const dia = DIAS_SEM.find((d) => c.includes(sinAcento(d)));
+    const franja = /man|maty/.test(c) ? "mañana" : /tard|noch|vesper/.test(c) ? "tarde" : null;
+    if (dia && franja && !out.some((o) => o.dia === dia && o.franja === franja)) out.push({ dia, franja });
+  }
+  return out;
+}
+
+// Busca un vendedor del tenant libre en alguno de los slots pedidos → {nombre, slot} o null.
+async function matchVendedor(slots: { dia: string; franja: string }[]): Promise<{ nombre: string; slot: string } | null> {
+  if (!slots.length) return null;
+  const { data } = await db.from("disponibilidad_agente")
+    .select("dia, franja, usuarios(nombre)").eq("inmobiliaria_id", INMO_ID);
+  for (const s of slots) {
+    const hit = (data ?? []).find((r) => r.dia === s.dia && r.franja === s.franja);
+    if (hit) {
+      const u = (Array.isArray(hit.usuarios) ? hit.usuarios[0] : hit.usuarios) as { nombre?: string } | null;
+      if (u?.nombre) return { nombre: u.nombre, slot: `${s.dia} ${s.franja}` };
+    }
+  }
+  return null;
+}
+
+// Fallback cuando no hay match por agenda: primer agente de visitas del tenant.
+async function primerVendedor(): Promise<string | null> {
+  const { data } = await db.from("usuarios").select("nombre")
+    .eq("inmobiliaria_id", INMO_ID).eq("rol", "agente_visitas").limit(1).maybeSingle();
+  return (data?.nombre as string) ?? null;
 }
 
 async function registrarBusqueda(leadId: string | null, criterios: string, resultados: number) {
@@ -375,9 +429,9 @@ async function registrarBusqueda(leadId: string | null, criterios: string, resul
 
 async function responderBot(convId: string, chatId: number | string) {
   if (!anthropic && !GEMINI_KEY) return;
-  const { data: conv } = await db.from("conversaciones").select("estado, lead_id, leads(ancla)").eq("id", convId).maybeSingle();
+  const { data: conv } = await db.from("conversaciones").select("estado, lead_id, leads(ancla, disponibilidad)").eq("id", convId).maybeSingle();
   if (!conv || conv.estado !== "bot") return;
-  const leadRow = (Array.isArray(conv.leads) ? conv.leads[0] : conv.leads) as { ancla?: string } | null | undefined;
+  const leadRow = (Array.isArray(conv.leads) ? conv.leads[0] : conv.leads) as { ancla?: string; disponibilidad?: string } | null | undefined;
   const ancla = leadRow?.ancla ?? null;
 
   const { data: msgs } = await db
@@ -427,12 +481,31 @@ async function responderBot(convId: string, chatId: number | string) {
     }
   }
 
+  // Etiqueta oculta de disponibilidad → la guardamos en el lead (para coordinar la visita).
+  const md = reply.match(/\[\[DISPO:\s*([\s\S]*?)\]\]/i);
+  if (md) {
+    const dispo = md[1].trim();
+    reply = reply.replace(/\[\[DISPO:[\s\S]*?\]\]/i, "").trim();
+    if (conv.lead_id && dispo) await db.from("leads").update({ disponibilidad: dispo }).eq("id", conv.lead_id as string);
+  }
+
   const ma = reply.match(/\[ASIGNAR:\s*([\s\S]*?)\]/i);
   if (ma) {
     let nombre = ma[1].trim();
-    if (!nombre || /^(no|vos|uno|cualquiera|el que sea)/i.test(nombre)) nombre = "Ubaldo";
-    await asignarConv(convId, (conv.lead_id as string) ?? null, nombre);
-    reply = `¡Listo! Te asigné a ${nombre} 🙌 En breve se contacta con vos para coordinar la visita. ¡Gracias por escribirnos!`;
+    const auto = !nombre || /^(no|vos|uno|cualquiera|el que sea|cualq|alguno|el que pued|da igual)/i.test(nombre);
+    let slotLabel: string | null = null;
+    if (auto) {
+      // Disponibilidad del cliente: la recién capturada (este turno) o la ya guardada.
+      const dispoCliente = (md ? md[1].trim() : null) ?? leadRow?.disponibilidad ?? null;
+      const m = dispoCliente ? await matchVendedor(parseDispo(dispoCliente)) : null;
+      if (m) { nombre = m.nombre; slotLabel = m.slot; }
+      else nombre = (await primerVendedor()) ?? "el equipo";
+    }
+    const reason = slotLabel ? `Visita ${slotLabel} · ${nombre}` : `Derivado a ${nombre}`;
+    await asignarConv(convId, (conv.lead_id as string) ?? null, nombre, reason);
+    reply = slotLabel
+      ? `¡Listo! Te asigné a ${nombre}, que está disponible el ${slotLabel} 🙌 En breve coordina la visita con vos. ¡Gracias por escribirnos!`
+      : `¡Listo! Te asigné a ${nombre} 🙌 En breve coordina con vos el día y horario de la visita. ¡Gracias por escribirnos!`;
   } else {
     const m = reply.match(/\[BUSCAR:\s*([\s\S]+?)\]/i);
     if (m) {

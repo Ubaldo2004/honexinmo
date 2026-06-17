@@ -51,6 +51,8 @@ export interface Conversacion {
   mood: string;
   score: number;
   abierta?: boolean;
+  disponibilidad?: string;     // día/horario que el cliente puede (lo captura el bot)
+  criteriosBusqueda?: string;  // qué pidió en su última búsqueda (referencia para el vendedor)
 }
 
 export interface MensajeHilo {

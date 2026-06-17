@@ -164,6 +164,7 @@ function VisitaRow({ v, onDelete }: { v: VisitaItem; onDelete: (id: string) => v
   const [texto, setTexto] = useState(v.transcripto ?? "");
   const [savedTxt, setSavedTxt] = useState(v.transcripto ?? "");
   const [savingTxt, setSavingTxt] = useState(false);
+  const [transcribiendo, setTranscribiendo] = useState(false);
   const [open, setOpen] = useState(false);
 
   async function play() {
@@ -178,6 +179,18 @@ function VisitaRow({ v, onDelete }: { v: VisitaItem; onDelete: (id: string) => v
     const r = await guardarTranscripto(v.id, texto);
     setSavingTxt(false);
     if (r.ok) setSavedTxt(texto.trim());
+  }
+  async function transcribir() {
+    if (transcribiendo) return;
+    setOpen(true);
+    setTranscribiendo(true);
+    try {
+      const r = await fetch("/api/transcribir", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitaId: v.id }) });
+      const j = await r.json();
+      if (!j.ok) alert(j.error ?? "No se pudo transcribir");
+      else { setTexto(j.texto); setSavedTxt((j.texto as string).trim()); }
+    } catch { alert("Error al transcribir"); }
+    setTranscribiendo(false);
   }
   async function borrar() {
     if (!confirm("¿Eliminar esta visita y su grabación?")) return;
@@ -212,12 +225,17 @@ function VisitaRow({ v, onDelete }: { v: VisitaItem; onDelete: (id: string) => v
         <button onClick={() => setOpen((o) => !o)} className="text-xs text-brand-300 hover:text-brand-200">
           {open ? "ocultar transcripto" : (savedTxt ? "ver transcripto" : "agregar transcripto")}
         </button>
+        {v.audioPath && (
+          <button onClick={transcribir} disabled={transcribiendo} className="rounded-md border border-brand-400/40 bg-brand-400/10 px-2.5 py-1 text-xs font-medium text-brand-200 transition hover:bg-brand-400/20 disabled:opacity-50">
+            {transcribiendo ? "Transcribiendo… (puede tardar)" : "✨ Transcribir automático"}
+          </button>
+        )}
       </div>
 
       {open && (
         <div className="mt-3">
           <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={5}
-            placeholder="Pegá o escribí lo que se habló en la visita… (la transcripción automática se conecta después)"
+            placeholder="Transcripto de la visita. Tocá ✨ Transcribir automático, o escribilo/pegalo a mano."
             className="w-full rounded-lg border border-line bg-ink-900 px-3 py-2 text-sm outline-none focus:border-brand-400/60" />
           <div className="mt-2 flex items-center gap-3">
             <button onClick={saveTxt} disabled={savingTxt || texto.trim() === savedTxt}

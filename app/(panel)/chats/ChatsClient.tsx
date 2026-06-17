@@ -6,9 +6,6 @@ import { F, estadoPill, anclaData, anclaLabel, type AnclaProp } from "@/componen
 import type { Conversacion, MensajeHilo, Resultado } from "@/lib/data/types";
 import { enviarMensaje, crearChat, asignarVendedor, corregirUltimoMensaje, marcarLeido, reactivarBot } from "./actions";
 
-// MVP: un solo vendedor. Después sale de la tabla `vendedores`/`usuarios`.
-const VENDEDORES = ["Ubaldo"];
-
 function nuevaConv(id: string, nombre: string): Conversacion {
   return {
     id, nombre, tel: "", ancla: "", origen: "panel", last: "", t: "",
@@ -20,11 +17,13 @@ export default function ChatsClient({
   conversaciones,
   hilos,
   resultados,
+  vendedores,
   initialId,
 }: {
   conversaciones: Conversacion[];
   hilos: Record<string, MensajeHilo[]>;
   resultados: Resultado[];
+  vendedores: string[];
   initialId?: string;
 }) {
   const initialConv = conversaciones.find((c) => c.id === initialId) ?? conversaciones[0];
@@ -47,6 +46,8 @@ export default function ChatsClient({
   const [corrText, setCorrText] = useState("");
   const [guardandoCorr, setGuardandoCorr] = useState(false);
   const [reactivando, setReactivando] = useState(false);
+  const [mobileChatAbierto, setMobileChatAbierto] = useState(false); // en celular: lista vs chat
+  const [mobileInfo, setMobileInfo] = useState(false); // en celular: hoja con info del cliente
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const hilo = conv ? [...(hilos[conv.id] ?? []), ...(extra[conv.id] ?? [])] : [];
@@ -72,6 +73,8 @@ export default function ChatsClient({
   }
   function abrirConv(c: Conversacion) {
     setConv(c);
+    setMobileChatAbierto(true);
+    setMobileInfo(false);
     if (c.unread > 0) marcarLeidoLocal(c.id);
   }
   // El chat abierto al cargar ya arranca en 0 (arriba); acá solo avisamos al server.
@@ -92,6 +95,7 @@ export default function ChatsClient({
     const c = nuevaConv(res.conv.id, res.conv.nombre);
     setConvList((prev) => [c, ...prev]);
     setConv(c);
+    setMobileChatAbierto(true);
     setTomadas((p) => ({ ...p, [c.id]: true })); // listo para escribir al toque
     setNuevo("");
   }
@@ -163,7 +167,7 @@ export default function ChatsClient({
   return (
     <div className="grid h-full grid-cols-1 md:grid-cols-[280px_1fr] lg:grid-cols-[280px_1fr_290px]">
       {/* lista */}
-      <div className="hidden min-h-0 flex-col border-r border-line md:flex">
+      <div className={(mobileChatAbierto ? "hidden " : "flex ") + "min-h-0 flex-col border-r border-line md:flex"}>
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-2.5 text-xs text-zinc-500">
           <span className="flex items-center gap-2"><I.Filter className="h-4 w-4" /> {convList.length} chat{convList.length === 1 ? "" : "s"}</span>
         </div>
@@ -198,7 +202,7 @@ export default function ChatsClient({
       </div>
 
       {/* conversación */}
-      <div className="flex min-h-0 flex-col bg-ink-950">
+      <div className={(mobileChatAbierto ? "flex " : "hidden ") + "min-h-0 flex-col bg-ink-950 md:flex"}>
         {!conv ? (
           <div className="grid flex-1 place-items-center p-6 text-center text-sm text-zinc-500">
             <div>
@@ -209,7 +213,12 @@ export default function ChatsClient({
         ) : (
           <>
             <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-              <div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-white/5 font-mono text-xs">{conv.nombre.slice(0, 2)}</div><div><div className="text-sm font-semibold">{conv.nombre}</div><div className="font-mono text-[11px] text-zinc-500">{conv.tel || "—"}</div></div></div>
+              <div className="flex items-center gap-3">
+                <button onClick={() => { setMobileChatAbierto(false); setMobileInfo(false); }} aria-label="Volver a chats" className="-ml-1 cursor-pointer text-xl leading-none text-zinc-400 hover:text-white md:hidden">←</button>
+                <button onClick={() => setMobileInfo(true)} className="flex items-center gap-3 text-left lg:pointer-events-none">
+                  <div className="grid h-9 w-9 place-items-center rounded-full bg-white/5 font-mono text-xs">{conv.nombre.slice(0, 2)}</div>
+                  <div><div className="flex items-center gap-2 text-sm font-semibold">{conv.nombre}<span className="rounded-full border border-brand-400/50 bg-brand-400/15 px-2.5 py-1 text-[12px] font-semibold text-brand-200 lg:hidden">ⓘ Ver info</span></div><div className="font-mono text-[11px] text-zinc-500">{conv.tel || "—"}</div></div>
+                </button></div>
               <span className={"pill " + (estadoPill[conv.estado]?.c || "")}>{estadoPill[conv.estado]?.t}</span>
             </div>
             {conv.estado !== "bot" && conv.reason && <div className={"flex items-center gap-2 border-b px-4 py-2 text-xs " + (conv.estado === "operacion" ? "border-line bg-white/3 text-zinc-400" : conv.estado === "visita" ? "border-warn/30 bg-warn/10 text-warn" : conv.estado === "seguimiento" ? "border-sky-400/30 bg-sky-400/10 text-sky-300" : "border-bad/30 bg-bad/10 text-bad")}><I.Alert className="h-4 w-4" /> {conv.reason}</div>}
@@ -261,8 +270,8 @@ export default function ChatsClient({
         )}
       </div>
 
-      {/* contexto */}
-      <div className="hidden min-h-0 flex-col overflow-y-auto border-l border-line bg-ink-900 p-4 lg:flex">
+      {/* contexto — columna en desktop; hoja full-screen en celular al tocar el header */}
+      <div className={(mobileInfo ? "fixed inset-0 z-40 flex" : "hidden") + " min-h-0 flex-col overflow-y-auto border-l border-line bg-ink-900 p-4 lg:static lg:z-auto lg:flex"}>
         {conv && (
           <>
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Contexto del lead</div>
@@ -283,6 +292,18 @@ export default function ChatsClient({
                 })()}
               </F>
               <F l="Vino de"><span className="font-mono text-[11px] text-zinc-400">{conv.origen || "—"}</span></F>
+              {conv.criteriosBusqueda && (
+                <div>
+                  <div className="text-zinc-500">Búsqueda pedida</div>
+                  <div className="mt-0.5 text-[13px] leading-snug text-zinc-300">{conv.criteriosBusqueda}</div>
+                </div>
+              )}
+              {conv.disponibilidad && (
+                <div>
+                  <div className="text-zinc-500">Disponibilidad</div>
+                  <div className="mt-0.5 rounded-md border border-brand-400/30 bg-brand-400/10 px-2 py-1 text-[13px] text-brand-200">🗓 {conv.disponibilidad}</div>
+                </div>
+              )}
             </div>
 
             <div className="mt-5 border-t border-line pt-4">
@@ -324,28 +345,36 @@ export default function ChatsClient({
 
             <div className="mt-5 border-t border-line pt-4">
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Derivar a vendedor</div>
-              <p className="mb-2 text-[11px] leading-snug text-zinc-600">El vendedor recibe el lead con todo el contexto. El bot sigue leyendo la conversación.</p>
-              <div className="flex flex-wrap gap-2">
-                {VENDEDORES.map((v) => {
-                  const ya = conv.asignado === v;
-                  return (
-                    <button
-                      key={v}
-                      onClick={() => asignar(v)}
-                      disabled={asignando || ya}
-                      className={
-                        "rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-60 " +
-                        (ya
-                          ? "border-ok/40 bg-ok/10 text-ok"
-                          : "border-brand-400/50 bg-brand-400/15 text-brand-200 hover:bg-brand-400/25")
-                      }
-                    >
-                      {ya ? `✓ Asignado a ${v}` : `Asignar a ${v}`}
-                    </button>
-                  );
-                })}
-              </div>
+              <p className="mb-2 text-[11px] leading-snug text-zinc-600">Solo aparecen los agentes de visitas con disponibilidad en su agenda. El bot sigue leyendo la conversación.</p>
+              {vendedores.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-line bg-ink-850 px-3 py-2 text-[11px] text-zinc-500">
+                  Ningún agente con disponibilidad ahora mismo. Cargá horarios libres en <span className="text-brand-300">Agenda</span>.
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {vendedores.map((v) => {
+                    const ya = conv.asignado === v;
+                    return (
+                      <button
+                        key={v}
+                        onClick={() => asignar(v)}
+                        disabled={asignando || ya}
+                        className={
+                          "rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-60 " +
+                          (ya
+                            ? "border-ok/40 bg-ok/10 text-ok"
+                            : "border-brand-400/50 bg-brand-400/15 text-brand-200 hover:bg-brand-400/25")
+                        }
+                      >
+                        {ya ? `✓ Asignado a ${v}` : `Asignar a ${v}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+
+            <button onClick={() => setMobileInfo(false)} className="mt-5 w-full rounded-xl border border-brand-400/40 bg-brand-400/15 px-4 py-3 text-sm font-bold text-brand-200 hover:bg-brand-400/25 lg:hidden">✕ Cerrar info</button>
           </>
         )}
       </div>

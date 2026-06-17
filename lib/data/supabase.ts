@@ -102,9 +102,23 @@ export class SupabaseRepository implements HonexRepository {
   async getConversaciones(): Promise<Conversacion[]> {
     const { data, error } = await this.db
       .from("conversaciones")
-      .select("id, estado, reason, priority, asignado_label, unread, ultimo_mensaje, ultimo_label, leads(nombre, telefono, ancla, origen, mood, score)")
+      .select("id, lead_id, estado, reason, priority, asignado_label, unread, ultimo_mensaje, ultimo_label, leads(nombre, telefono, ancla, origen, mood, score, disponibilidad)")
       .order("ultimo_label", { ascending: false });
     if (error) throw error;
+
+    // Última búsqueda (criterios) por lead → referencia para el vendedor en el handoff.
+    const leadIds = (data ?? []).map((r) => r.lead_id as string).filter(Boolean);
+    const critByLead: Record<string, string> = {};
+    if (leadIds.length) {
+      const { data: bq } = await this.db
+        .from("busquedas").select("lead_id, criterios, creada_at")
+        .in("lead_id", leadIds).order("creada_at", { ascending: false });
+      for (const b of bq ?? []) {
+        const lid = b.lead_id as string;
+        if (lid && !(lid in critByLead)) critByLead[lid] = (b.criterios as string) ?? "";
+      }
+    }
+
     return (data ?? []).map((r): Conversacion => {
       const lraw = Array.isArray(r.leads) ? r.leads[0] : r.leads;
       const l = (lraw ?? {}) as unknown as Record<string, unknown>;
@@ -123,6 +137,8 @@ export class SupabaseRepository implements HonexRepository {
         asignado: (r.asignado_label as string) ?? "bot",
         mood: MOOD_POR_ESTADO[r.estado as string] ?? (l.mood as string) ?? "—",
         score: (l.score as number) ?? 0,
+        disponibilidad: (l.disponibilidad as string) ?? undefined,
+        criteriosBusqueda: critByLead[r.lead_id as string] ?? undefined,
       };
     });
   }

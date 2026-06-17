@@ -14,9 +14,11 @@ const NAV = [
   { href: "/leads", t: "Leads", icon: I.Users },
   { href: "/anclas", t: "Anclas + ADS", icon: I.Megaphone },
   { href: "/visitas", t: "Visitas", icon: I.Doc },
+  { href: "/agenda", t: "Agenda", icon: I.Calendar },
   { href: "/operaciones", t: "Operaciones", icon: I.Coins },
   { href: "/sistema", t: "Sistema", icon: I.Bot },
   { href: "/usuarios", t: "Usuarios", icon: I.Settings },
+  { href: "/plataforma", t: "Plataforma", icon: I.Building, soloSuper: true },
 ];
 
 const ROL_LABEL: Record<string, string> = {
@@ -63,7 +65,7 @@ export default function PanelShell({
           </div>
         )}
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
-          {NAV.map((n) => {
+          {NAV.filter((n) => !("soloSuper" in n) || rol === "super_admin").map((n) => {
             const Icon = n.icon;
             const active = current?.href === n.href;
             return (
