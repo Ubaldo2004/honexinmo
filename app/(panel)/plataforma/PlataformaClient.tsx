@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/panel/ui";
-import { crearInmobiliaria, crearUsuario, eliminarUsuario } from "./actions";
+import { crearInmobiliaria, crearUsuario, eliminarUsuario, actualizarTokko } from "./actions";
 
 type Inmo = { id: string; nombre: string; slug: string };
 type Usuario = { id: string; nombre: string; rol: string; inmobiliaria_id: string | null; email: string | null; tokko: string | null };
@@ -93,18 +93,7 @@ function InmoCard({ inmo, usuarios }: { inmo: Inmo; usuarios: Usuario[] }) {
       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Usuarios</div>
       <div className="space-y-1.5">
         {usuarios.length === 0 && <div className="text-[12px] text-zinc-600">Sin usuarios. Creá uno abajo.</div>}
-        {usuarios.map((u) => (
-          <div key={u.id} className="flex items-center justify-between gap-2 rounded-lg border border-line bg-ink-850 px-3 py-2">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{u.nombre}</div>
-              <div className="truncate text-[11px] text-zinc-500">{u.email ?? "—"}{u.tokko ? <span className="ml-2 text-brand-300">Tokko: {u.tokko}</span> : null}</div>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="rounded-full border border-line px-2 py-0.5 text-[10px] text-zinc-400">{ROL_LABEL[u.rol] ?? u.rol}</span>
-              <button onClick={() => { if (confirm(`¿Eliminar a ${u.nombre}? No podrá entrar más.`)) run(() => eliminarUsuario(u.id)); }} disabled={busy} className="rounded-md border border-bad/40 px-2 py-1 text-[11px] text-bad hover:bg-bad/10 disabled:opacity-50">✕</button>
-            </div>
-          </div>
-        ))}
+        {usuarios.map((u) => <UserRow key={u.id} u={u} />)}
       </div>
 
       <div className="mt-3 space-y-2 rounded-lg border border-line bg-ink-900 p-3">
@@ -116,8 +105,8 @@ function InmoCard({ inmo, usuarios }: { inmo: Inmo; usuarios: Usuario[] }) {
             {ROLES.map(([v, t]) => <option key={v} value={v} className="bg-ink-900">{t}</option>)}
           </select>
           <input value={up} onChange={(e) => setUp(e.target.value)} placeholder="Contraseña (mín 6)" className={field} />
-          <label className="block text-[11px] text-zinc-500 sm:col-span-2">ID de Tokko (vendedor_id) — para que busque por Tokko Finder
-            <input value={ut} onChange={(e) => setUt(e.target.value)} placeholder="25e94c02-03ee-4272-… (dejalo vacío si no es vendedor)" className={field} />
+          <label className="block text-[11px] text-zinc-500 sm:col-span-2">UUID de Tokko (el id del vendedor en Tokko Finder, no un número)
+            <input value={ut} onChange={(e) => setUt(e.target.value)} placeholder="25e94c02-03ee-4272-8003-57f6dcebd36c (vacío si no es vendedor)" className={field} />
           </label>
         </div>
         <button
@@ -129,5 +118,58 @@ function InmoCard({ inmo, usuarios }: { inmo: Inmo; usuarios: Usuario[] }) {
         </button>
       </div>
     </Card>
+  );
+}
+
+function UserRow({ u }: { u: Usuario }) {
+  const router = useRouter();
+  const [editando, setEditando] = useState(false);
+  const [tk, setTk] = useState(u.tokko ?? "");
+  const [busy, setBusy] = useState(false);
+
+  async function guardarTk() {
+    setBusy(true);
+    const res = await actualizarTokko(u.id, tk);
+    setBusy(false);
+    if (!res.ok) { alert(res.error ?? "Error"); return; }
+    setEditando(false); router.refresh();
+  }
+  async function borrar() {
+    if (!confirm(`¿Eliminar a ${u.nombre}? No podrá entrar más.`)) return;
+    setBusy(true);
+    const res = await eliminarUsuario(u.id);
+    setBusy(false);
+    if (!res.ok) { alert(res.error ?? "Error"); return; }
+    router.refresh();
+  }
+
+  return (
+    <div className="rounded-lg border border-line bg-ink-850 px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium">{u.nombre}</div>
+          <div className="truncate text-[11px] text-zinc-500">{u.email ?? "—"}</div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded-full border border-line px-2 py-0.5 text-[10px] text-zinc-400">{ROL_LABEL[u.rol] ?? u.rol}</span>
+          <button onClick={borrar} disabled={busy} className="rounded-md border border-bad/40 px-2 py-1 text-[11px] text-bad hover:bg-bad/10 disabled:opacity-50">✕</button>
+        </div>
+      </div>
+      <div className="mt-1.5 flex items-center gap-2 text-[11px]">
+        <span className="text-zinc-600">Tokko:</span>
+        {editando ? (
+          <>
+            <input value={tk} onChange={(e) => setTk(e.target.value)} placeholder="UUID del vendedor" className="min-w-0 flex-1 rounded border border-line bg-ink-900 px-2 py-1 font-mono text-[11px] outline-none focus:border-brand-400/60" />
+            <button onClick={guardarTk} disabled={busy} className="rounded bg-brand-400 px-2 py-1 text-[10px] font-semibold text-ink-950 disabled:opacity-50">Guardar</button>
+            <button onClick={() => { setTk(u.tokko ?? ""); setEditando(false); }} className="text-zinc-500">cancelar</button>
+          </>
+        ) : (
+          <>
+            <span className={"truncate font-mono " + (u.tokko ? "text-brand-300" : "text-zinc-600")}>{u.tokko ?? "— sin id —"}</span>
+            <button onClick={() => setEditando(true)} className="shrink-0 text-brand-300 hover:text-brand-200">editar</button>
+          </>
+        )}
+      </div>
+    </div>
   );
 }

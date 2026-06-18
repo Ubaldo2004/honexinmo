@@ -18,6 +18,9 @@ async function requireSuper() {
   return ctx && ctx.rol === "super_admin" ? ctx : null;
 }
 
+// El id de Tokko es el UUID del vendedor en la tabla `vendedores` de Tokko Finder.
+const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function crearInmobiliaria(nombre: string, slug: string) {
   if (!(await requireSuper())) return { ok: false as const, error: "Solo el super admin" };
   const n = nombre.trim(), s = slug.trim().toLowerCase().replace(/\s+/g, "-");
@@ -39,6 +42,7 @@ export async function crearUsuario(
   const n = nombre.trim(), e = email.trim().toLowerCase(), tk = tokkoVendedorId.trim();
   if (!n || !e || !password || password.length < 6) return { ok: false as const, error: "Nombre, email y contraseña (mín 6) requeridos" };
   if (!["administrador", "operador", "agente_visitas"].includes(rol)) return { ok: false as const, error: "Rol inválido" };
+  if (tk && !ES_UUID.test(tk)) return { ok: false as const, error: "El ID de Tokko tiene que ser un UUID (ej: 25e94c02-03ee-4272-8003-57f6dcebd36c), no un número." };
 
   // 1) usuario de auth (para que pueda loguearse)
   const { data: created, error: e1 } = await admin.auth.admin.createUser({ email: e, password, email_confirm: true });
@@ -52,6 +56,16 @@ export async function crearUsuario(
     await admin.auth.admin.deleteUser(created.user.id).catch(() => {}); // rollback
     return { ok: false as const, error: e2.message };
   }
+  return { ok: true as const };
+}
+
+// Edita el ID de Tokko (UUID) de un usuario ya creado — para corregir los que cargaron mal.
+export async function actualizarTokko(usuarioId: string, tokkoVendedorId: string) {
+  if (!(await requireSuper())) return { ok: false as const, error: "Solo el super admin" };
+  const tk = tokkoVendedorId.trim();
+  if (tk && !ES_UUID.test(tk)) return { ok: false as const, error: "El ID de Tokko tiene que ser un UUID, no un número." };
+  const { error } = await admin.from("usuarios").update({ tokko_vendedor_id: tk || null }).eq("id", usuarioId);
+  if (error) return { ok: false as const, error: error.message };
   return { ok: true as const };
 }
 
