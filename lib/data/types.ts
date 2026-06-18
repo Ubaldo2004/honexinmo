@@ -115,6 +115,7 @@ export interface Ancla {
 }
 
 export interface Operacion {
+  id?: string;
   prop: string;
   cliente: string;
   colega: string;
@@ -144,6 +145,16 @@ export interface Rol {
   d: string;
 }
 
+// Análisis que saca el Analista del transcripto de la visita (le gustó, objeciones, qué busca ahora).
+export interface AnalisisVisita {
+  le_gusto?: string;       // "si" | "no" | "dudoso"
+  positivos?: string[];    // qué le gustó
+  objeciones?: string[];   // qué no le gustó / objeciones
+  busca_ahora?: string;    // qué busca ahora / qué ajustaría
+  siguiente?: string;      // próximo paso del seguimiento
+  prob?: number;           // probabilidad de cierre 0–100
+}
+
 // Una visita grabada por el agente (lista del panel). Distinto de `Visita` (demo single).
 export interface VisitaItem {
   id: string;
@@ -155,6 +166,7 @@ export interface VisitaItem {
   audioPath: string | null;
   transcripto: string | null;
   duracionSeg: number | null;
+  analisis: AnalisisVisita | null;
 }
 
 /**

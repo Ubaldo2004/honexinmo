@@ -76,7 +76,7 @@ export default function VisitasClient({ visitas: initial, leads }: { visitas: Vi
       setVisitas((prev) => [{
         id: c.id, leadId: lead, lead: nombre, prop: prop.trim(), agente: "vos",
         fecha: new Date().toLocaleDateString("es-AR"), audioPath: u.path, transcripto: null,
-        duracionSeg: Math.round(segs),
+        duracionSeg: Math.round(segs), analisis: null,
       }, ...prev]);
       setBlob(null); setProp(""); setSegs(0);
     } catch (e) { setErr((e as Error).message); }
@@ -165,6 +165,8 @@ function VisitaRow({ v, onDelete }: { v: VisitaItem; onDelete: (id: string) => v
   const [savedTxt, setSavedTxt] = useState(v.transcripto ?? "");
   const [savingTxt, setSavingTxt] = useState(false);
   const [transcribiendo, setTranscribiendo] = useState(false);
+  const [analisis, setAnalisis] = useState(v.analisis);
+  const [analizando, setAnalizando] = useState(false);
   const [open, setOpen] = useState(false);
 
   async function play() {
@@ -191,6 +193,17 @@ function VisitaRow({ v, onDelete }: { v: VisitaItem; onDelete: (id: string) => v
       else { setTexto(j.texto); setSavedTxt((j.texto as string).trim()); }
     } catch { alert("Error al transcribir"); }
     setTranscribiendo(false);
+  }
+  async function analizar() {
+    if (analizando) return;
+    setAnalizando(true);
+    try {
+      const r = await fetch("/api/analizar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitaId: v.id }) });
+      const j = await r.json();
+      if (!j.ok) alert(j.error ?? "No se pudo analizar");
+      else setAnalisis(j.analisis);
+    } catch { alert("Error al analizar"); }
+    setAnalizando(false);
   }
   async function borrar() {
     if (!confirm("¿Eliminar esta visita y su grabación?")) return;
@@ -230,7 +243,42 @@ function VisitaRow({ v, onDelete }: { v: VisitaItem; onDelete: (id: string) => v
             {transcribiendo ? "Transcribiendo… (puede tardar)" : "✨ Transcribir automático"}
           </button>
         )}
+        {savedTxt && (
+          <button onClick={analizar} disabled={analizando} className="rounded-md border border-sky-400/40 bg-sky-400/10 px-2.5 py-1 text-xs font-medium text-sky-300 transition hover:bg-sky-400/20 disabled:opacity-50">
+            {analizando ? "Analizando…" : "🧠 Analizar visita"}
+          </button>
+        )}
       </div>
+
+      {analisis && (
+        <div className="mt-3 rounded-lg border border-sky-400/20 bg-sky-400/5 p-3">
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-sky-300">
+            🧠 Análisis del Analista
+            {typeof analisis.prob === "number" && <span className="ml-auto rounded-full bg-sky-400/15 px-2 py-0.5 font-mono text-[11px]">{analisis.prob}% cierre</span>}
+          </div>
+          <div className="space-y-2 text-[13px]">
+            {analisis.le_gusto && (
+              <div><span className="text-zinc-500">¿Le gustó? </span>
+                <span className={analisis.le_gusto === "si" ? "text-ok" : analisis.le_gusto === "no" ? "text-bad" : "text-warn"}>
+                  {analisis.le_gusto === "si" ? "Sí 👍" : analisis.le_gusto === "no" ? "No 👎" : "Dudoso 🤔"}
+                </span>
+              </div>
+            )}
+            {analisis.positivos && analisis.positivos.length > 0 && (
+              <div><div className="text-[11px] uppercase text-zinc-500">Le gustó</div><ul className="mt-0.5">{analisis.positivos.map((p, i) => <li key={i} className="text-zinc-300">· {p}</li>)}</ul></div>
+            )}
+            {analisis.objeciones && analisis.objeciones.length > 0 && (
+              <div><div className="text-[11px] uppercase text-zinc-500">No le gustó / objeciones</div><ul className="mt-0.5">{analisis.objeciones.map((p, i) => <li key={i} className="text-zinc-300">· {p}</li>)}</ul></div>
+            )}
+            {analisis.busca_ahora && (
+              <div><div className="text-[11px] uppercase text-zinc-500">Busca ahora</div><div className="text-zinc-300">{analisis.busca_ahora}</div></div>
+            )}
+            {analisis.siguiente && (
+              <div className="rounded-md border border-brand-400/30 bg-brand-400/10 p-2"><div className="text-[11px] font-semibold text-brand-300">Próximo paso (seguimiento)</div><div className="text-zinc-200">{analisis.siguiente}</div></div>
+            )}
+          </div>
+        </div>
+      )}
 
       {open && (
         <div className="mt-3">

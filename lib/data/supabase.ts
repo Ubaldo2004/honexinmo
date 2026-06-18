@@ -48,9 +48,23 @@ const MOOD_POR_ESTADO: Record<string, string> = {
 export class SupabaseRepository implements HonexRepository {
   constructor(private db: SupabaseClient) {}
 
-  // ---- estáticos (config / presentación) ----
-  async getPiezas(): Promise<Pieza[]> { return PIEZAS; }
   async getRoles(): Promise<Rol[]> { return ROLES; }
+
+  // ---- Piezas: la identidad es estática, pero la métrica sale de la data real del tenant ----
+  async getPiezas(): Promise<Pieza[]> {
+    const [convs, msgs, busq, vis] = await Promise.all([
+      this.db.from("conversaciones").select("*", { count: "exact", head: true }),
+      this.db.from("mensajes").select("*", { count: "exact", head: true }),
+      this.db.from("busquedas").select("*", { count: "exact", head: true }),
+      this.db.from("visitas").select("*", { count: "exact", head: true }).not("analisis", "is", null),
+    ]);
+    const metricas: Record<string, string> = {
+      orquestador: `${convs.count ?? 0} chats · ${msgs.count ?? 0} mensajes`,
+      motor: `${busq.count ?? 0} búsquedas en la red`,
+      analista: `${vis.count ?? 0} visitas analizadas`,
+    };
+    return PIEZAS.map((p) => ({ ...p, metric: metricas[p.key] ?? p.metric }));
+  }
 
   // ---- Demanda real: mensajes entrantes por hora del día (zona AR) ----
   async getDemanda(): Promise<number[]> {
@@ -275,9 +289,10 @@ export class SupabaseRepository implements HonexRepository {
   async getOperaciones(): Promise<Operacion[]> {
     const { data, error } = await this.db
       .from("operaciones")
-      .select("prop, cliente, colega, monto, comision, split, estado");
+      .select("id, prop, cliente, colega, monto, comision, split, estado");
     if (error) throw error;
     return (data ?? []).map((r): Operacion => ({
+      id: r.id as string,
       prop: (r.prop as string) ?? "",
       cliente: (r.cliente as string) ?? "",
       colega: (r.colega as string) ?? "",
@@ -314,7 +329,7 @@ export class SupabaseRepository implements HonexRepository {
   async getVisitas(): Promise<VisitaItem[]> {
     const { data, error } = await this.db
       .from("visitas")
-      .select("id, lead_id, lead_label, prop, agente, fecha, audio_path, transcripto_texto, duracion_seg, leads(nombre)")
+      .select("id, lead_id, lead_label, prop, agente, fecha, audio_path, transcripto_texto, duracion_seg, analisis, leads(nombre)")
       .order("creada_at", { ascending: false });
     if (error) throw error;
     return (data ?? []).map((r): VisitaItem => {
@@ -329,6 +344,7 @@ export class SupabaseRepository implements HonexRepository {
         audioPath: (r.audio_path as string) ?? null,
         transcripto: (r.transcripto_texto as string) ?? null,
         duracionSeg: (r.duracion_seg as number) ?? null,
+        analisis: (r.analisis as VisitaItem["analisis"]) ?? null,
       };
     });
   }

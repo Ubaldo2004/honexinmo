@@ -5,7 +5,7 @@ import { getRepository } from "@/lib/data";
 const ICONS: Record<string, (p: { className?: string }) => React.ReactNode> = { Bot: I.Bot, Search: I.Search, Brain: I.Brain };
 
 const det: Record<string, string[]> = {
-  orquestador: ["Recibe cada mensaje de WhatsApp", "Califica (particular/colega) y rutea", "Mantiene el hilo de la propiedad ancla", "Hace el seguimiento hasta que el lead diga basta"],
+  orquestador: ["Recibe cada mensaje de Telegram (WhatsApp después)", "Califica (particular/colega) y rutea", "Mantiene el hilo de la propiedad ancla", "Hace el seguimiento hasta que el lead diga basta"],
   motor: ["NO es un agente: es un motor de búsqueda", "Busca en toda la red (Tokko/Propia/portales)", "Rankea por match y arma la ficha", "Ya está funcionando (reuso de Tokko Finder)"],
   analista: ["El “encargado interno” que entrena al bot", "Analiza conversaciones y seguimientos", "Procesa los transcriptos de las visitas", "Saca tasa de éxito por visita + correcciones"],
 };
