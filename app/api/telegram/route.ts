@@ -25,7 +25,7 @@ const anthropic = ANTHROPIC_KEY ? new Anthropic({ apiKey: ANTHROPIC_KEY }) : nul
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 // flash-lite tiene una cuota diaria free mucho más alta que flash (que quedó en 20/día).
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
-const SEARCH_URL = process.env.N8N_SEARCH_WEBHOOK_URL || "https://n8n.tokko-finder.gachetponzellini.com/webhook/honex/search";
+const SEARCH_URL = process.env.N8N_SEARCH_WEBHOOK_URL || "https://n8n.tokko-finder.gachetponzellini.com/webhook/honex/search-v2";
 const SEARCH_VENDEDOR = process.env.HONEX_SEARCH_VENDEDOR_ID || ""; // fallback: telegram_id del vendedor (n8n resuelve el UUID)
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
