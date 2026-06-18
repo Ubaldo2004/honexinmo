@@ -98,7 +98,6 @@ export default function PanelShell({
           </div>
           <div className="flex items-center gap-3">
             <div className="hidden items-center gap-2 rounded-lg border border-line bg-ink-900 px-3 py-1.5 text-sm text-zinc-500 sm:flex"><I.Search className="h-4 w-4" /> Buscar…</div>
-            <button className="relative cursor-pointer rounded-lg border border-line bg-ink-900 p-2 text-zinc-400 hover:text-white"><I.Bell className="h-4 w-4" /><span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-bad" /></button>
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
