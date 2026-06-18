@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 880" font-family="Inter, Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#9aa1ab"/>
+    </marker>
+    <style>
+      .box { fill:#1b1f27; stroke:#2e3440; stroke-width:1.5; rx:14; }
+      .accent { fill:#13171e; stroke:#e8a33d; stroke-width:1.8; }
+      .title { fill:#f0ece2; font-size:16px; font-weight:700; }
+      .sub { fill:#9aa1ab; font-size:12.5px; }
+      .step { fill:#e8a33d; font-size:12px; font-weight:700; }
+      .link { stroke:#9aa1ab; stroke-width:2; fill:none; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="760" height="880" fill="#0f1218"/>
+  <text x="32" y="44" fill="#f0ece2" font-size="22" font-weight="700">Honex · Flujo de la conversación del bot</text>
+  <text x="32" y="68" fill="#9aa1ab" font-size="13">De la campaña a la operación, con trazabilidad total</text>
+
+  <!-- 1 -->
+  <rect class="box" x="200" y="92" width="360" height="64" rx="14"/>
+  <text class="step" x="220" y="118">1 · CAMPAÑA</text>
+  <text class="title" x="220" y="124" dy="14">El comprador escribe por Telegram</text>
+  <text class="sub" x="220" y="148">Llega desde un aviso (propiedad ancla)</text>
+  <path class="link" d="M380,156 L380,184" marker-end="url(#arrow)"/>
+
+  <!-- 2 -->
+  <rect class="accent" x="200" y="186" width="360" height="74" rx="14"/>
+  <text class="step" x="220" y="212">2 · BOT · califica</text>
+  <text class="title" x="220" y="218" dy="14">Junta los 5 datos base</text>
+  <text class="sub" x="220" y="242">Operación · tipo · zona · presupuesto · ambientes</text>
+  <text class="sub" x="220" y="256">1 pregunta por mensaje · convierte $ARS → USD</text>
+  <path class="link" d="M380,260 L380,288" marker-end="url(#arrow)"/>
+
+  <!-- 3 -->
+  <rect class="accent" x="200" y="290" width="360" height="74" rx="14"/>
+  <text class="step" x="220" y="316">3 · MOTOR · busca</text>
+  <text class="title" x="220" y="322" dy="14">Trae y rankea por 🎯 % de coincidencia</text>
+  <text class="sub" x="220" y="346">Muestra hasta 5, mejor match primero</text>
+  <text class="sub" x="220" y="360">"ver más" → propiedades distintas</text>
+  <path class="link" d="M380,364 L380,392" marker-end="url(#arrow)"/>
+
+  <!-- 4 -->
+  <rect class="box" x="200" y="394" width="360" height="64" rx="14"/>
+  <text class="step" x="220" y="420">4 · INTERÉS REAL</text>
+  <text class="title" x="220" y="426" dy="14">Quiere ir a ver una → pide disponibilidad</text>
+  <text class="sub" x="220" y="450">"¿qué días te quedan bien, mañana o tarde?"</text>
+  <path class="link" d="M380,458 L380,486" marker-end="url(#arrow)"/>
+
+  <!-- 5 -->
+  <rect class="accent" x="200" y="488" width="360" height="74" rx="14"/>
+  <text class="step" x="220" y="514">5 · MATCH AUTOMÁTICO</text>
+  <text class="title" x="220" y="520" dy="14">Asigna un vendedor libre</text>
+  <text class="sub" x="220" y="544">Cruza la disponibilidad con las agendas</text>
+  <text class="sub" x="220" y="558">→ VISITA asignada</text>
+  <path class="link" d="M380,562 L380,590" marker-end="url(#arrow)"/>
+
+  <!-- 6 -->
+  <rect class="box" x="200" y="592" width="360" height="80" rx="14"/>
+  <text class="step" x="220" y="618">6 · VISITA · analista</text>
+  <text class="title" x="220" y="624" dy="14">Audio → transcripción → 🧠 análisis</text>
+  <text class="sub" x="220" y="648">Qué le gustó · objeciones · qué busca ahora</text>
+  <text class="sub" x="220" y="664">· próximo paso (para el seguimiento)</text>
+  <path class="link" d="M380,672 L380,700" marker-end="url(#arrow)"/>
+
+  <!-- 7 -->
+  <rect class="accent" x="200" y="702" width="360" height="64" rx="14"/>
+  <text class="step" x="220" y="728">7 · OPERACIÓN</text>
+  <text class="title" x="220" y="734" dy="14">Seña → reparto de comisión (split)</text>
+  <text class="sub" x="220" y="758">El bot queda OFF · lo toma un humano</text>
+
+  <!-- estados -->
+  <text x="32" y="800" fill="#9aa1ab" font-size="12" font-weight="700">ESTADOS DE LA CONVERSACIÓN</text>
+  <g font-size="11.5">
+    <rect x="32" y="812" width="86" height="26" rx="13" fill="#13171e" stroke="#e8a33d"/>
+    <text x="48" y="829" fill="#e8a33d">bot</text>
+    <rect x="128" y="812" width="96" height="26" rx="13" fill="#1b1f27" stroke="#2e3440"/>
+    <text x="146" y="829" fill="#c9cdd4">visita</text>
+    <rect x="234" y="812" width="106" height="26" rx="13" fill="#1b1f27" stroke="#2e3440"/>
+    <text x="252" y="829" fill="#c9cdd4">handoff</text>
+    <rect x="350" y="812" width="128" height="26" rx="13" fill="#1b1f27" stroke="#2e3440"/>
+    <text x="368" y="829" fill="#c9cdd4">seguimiento</text>
+    <rect x="488" y="812" width="120" height="26" rx="13" fill="#1b1f27" stroke="#2e3440"/>
+    <text x="506" y="829" fill="#c9cdd4">operación</text>
+  </g>
+</svg>
