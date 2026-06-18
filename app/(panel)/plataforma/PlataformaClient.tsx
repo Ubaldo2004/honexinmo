@@ -35,8 +35,8 @@ export default function PlataformaClient({ inmobiliarias, usuarios }: { inmobili
     <div className="space-y-4">
       <Card className="p-4 text-sm text-zinc-400">
         <span className="font-semibold text-zinc-200">Consola de plataforma (Super Admin).</span> Administrá las inmobiliarias
-        y sus usuarios. Cada vendedor lleva su <strong>ID de Tokko</strong> — el bot rota entre todos en cada búsqueda
-        (para no pegarle siempre a la misma cuenta). Solo vos ves esta sección.
+        y sus usuarios. Cada vendedor lleva su <strong>Telegram ID</strong> (con el que figura en Tokko Finder) — el bot
+        rota entre todos en cada búsqueda y n8n resuelve la cuenta de Tokko. Solo vos ves esta sección.
       </Card>
 
       <Card className="p-4">
@@ -105,8 +105,8 @@ function InmoCard({ inmo, usuarios }: { inmo: Inmo; usuarios: Usuario[] }) {
             {ROLES.map(([v, t]) => <option key={v} value={v} className="bg-ink-900">{t}</option>)}
           </select>
           <input value={up} onChange={(e) => setUp(e.target.value)} placeholder="Contraseña (mín 6)" className={field} />
-          <label className="block text-[11px] text-zinc-500 sm:col-span-2">UUID de Tokko (el id del vendedor en Tokko Finder, no un número)
-            <input value={ut} onChange={(e) => setUt(e.target.value)} placeholder="25e94c02-03ee-4272-8003-57f6dcebd36c (vacío si no es vendedor)" className={field} />
+          <label className="block text-[11px] text-zinc-500 sm:col-span-2">Telegram ID del vendedor (con el que figura en Tokko Finder)
+            <input value={ut} onChange={(e) => setUt(e.target.value)} placeholder="7174613604 (vacío si no es vendedor)" className={field} />
           </label>
         </div>
         <button
@@ -159,7 +159,7 @@ function UserRow({ u }: { u: Usuario }) {
         <span className="text-zinc-600">Tokko:</span>
         {editando ? (
           <>
-            <input value={tk} onChange={(e) => setTk(e.target.value)} placeholder="UUID del vendedor" className="min-w-0 flex-1 rounded border border-line bg-ink-900 px-2 py-1 font-mono text-[11px] outline-none focus:border-brand-400/60" />
+            <input value={tk} onChange={(e) => setTk(e.target.value)} placeholder="Telegram ID del vendedor" className="min-w-0 flex-1 rounded border border-line bg-ink-900 px-2 py-1 font-mono text-[11px] outline-none focus:border-brand-400/60" />
             <button onClick={guardarTk} disabled={busy} className="rounded bg-brand-400 px-2 py-1 text-[10px] font-semibold text-ink-950 disabled:opacity-50">Guardar</button>
             <button onClick={() => { setTk(u.tokko ?? ""); setEditando(false); }} className="text-zinc-500">cancelar</button>
           </>

@@ -26,7 +26,7 @@ const GEMINI_KEY = process.env.GEMINI_API_KEY;
 // flash-lite tiene una cuota diaria free mucho más alta que flash (que quedó en 20/día).
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 const SEARCH_URL = process.env.N8N_SEARCH_WEBHOOK_URL || "https://n8n.tokko-finder.gachetponzellini.com/webhook/honex/search";
-const SEARCH_VENDEDOR = process.env.HONEX_SEARCH_VENDEDOR_ID || "25e94c02-03ee-4272-8003-57f6dcebd36c"; // Ubaldo
+const SEARCH_VENDEDOR = process.env.HONEX_SEARCH_VENDEDOR_ID || ""; // fallback: telegram_id del vendedor (n8n resuelve el UUID)
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
 const db = createClient(SB_URL, SECRET, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -34,7 +34,7 @@ const db = createClient(SB_URL, SECRET, { auth: { persistSession: false, autoRef
 // Tenant resuelto una vez por instancia (las funciones "calientes" lo reutilizan).
 let INMO_ID: string | null = null;
 let INMO_NOMBRE = "la inmobiliaria";
-let INMO_VENDEDORES: string[] = []; // cuentas de Tokko (vendedor_id) del tenant, para rotar
+let INMO_VENDEDORES: string[] = []; // telegram_id de los vendedores del tenant, para rotar (n8n resuelve el UUID)
 let VENDEDOR_IDX = 0;
 async function getInmo() {
   if (INMO_ID) return INMO_ID;
@@ -48,7 +48,7 @@ async function getInmo() {
   return INMO_ID;
 }
 
-// Rota entre los vendedor_id de Tokko (uno por búsqueda) → no pega siempre a la misma cuenta.
+// Rota entre los telegram_id de los vendedores (uno por búsqueda) → no pega siempre a la misma cuenta.
 function siguienteVendedor(): string {
   if (!INMO_VENDEDORES.length) return SEARCH_VENDEDOR;
   const v = INMO_VENDEDORES[VENDEDOR_IDX % INMO_VENDEDORES.length];
@@ -213,7 +213,7 @@ async function buscarPropiedades(query: string): Promise<Prop[]> {
     const res = await fetch(SEARCH_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vendedor_id: siguienteVendedor(), filtros: query, limit: 15 }),
+      body: JSON.stringify({ telegram_id: siguienteVendedor(), filtros: query, limit: 15 }),
     });
     const data = await res.json();
     const api = Array.isArray(data?.api?.propiedades) ? data.api.propiedades : [];
