@@ -18,7 +18,6 @@ const NAV = [
   { href: "/operaciones", t: "Operaciones", icon: I.Coins },
   { href: "/sistema", t: "Sistema", icon: I.Bot },
   { href: "/usuarios", t: "Usuarios", icon: I.Settings },
-  { href: "/plataforma", t: "Plataforma", icon: I.Building, soloSuper: true },
 ];
 
 const ROL_LABEL: Record<string, string> = {
@@ -32,12 +31,10 @@ export default function PanelShell({
   children,
   nombre,
   rol,
-  inmobiliaria,
 }: {
   children: React.ReactNode;
   nombre: string;
   rol: string | null;
-  inmobiliaria: string | null;
 }) {
   const [nav, setNav] = useState(false);
   const pathname = usePathname();
@@ -58,14 +55,8 @@ export default function PanelShell({
           <I.Mark className="h-8 w-8" />
           <div><div className="font-display text-base font-bold leading-none">honexinmobiliaria</div><div className="text-[10px] text-zinc-500">panel interno</div></div>
         </div>
-        {inmobiliaria && (
-          <div className="mx-3 mb-1 rounded-lg border border-line bg-ink-850 px-3 py-2">
-            <div className="text-[10px] uppercase tracking-wide text-zinc-600">Inmobiliaria</div>
-            <div className="truncate text-sm font-semibold text-brand-300">{inmobiliaria}</div>
-          </div>
-        )}
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2">
-          {NAV.filter((n) => !("soloSuper" in n) || rol === "super_admin").map((n) => {
+          {NAV.map((n) => {
             const Icon = n.icon;
             const active = current?.href === n.href;
             return (

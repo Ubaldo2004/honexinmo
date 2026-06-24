@@ -270,7 +270,10 @@ export default function ChatsClient({
                 return (
                 <div key={i} className={"flex " + (m.who === "in" ? "justify-start" : "justify-end")}>
                   <div className={"max-w-[85%] " + (m.system ? "w-full" : "")}>
-                    {m.agent && <div className={"mb-0.5 text-[10px] font-semibold text-brand-400/80 " + (m.who === "in" ? "pl-1" : "pr-1 text-right")}>{m.agent}</div>}
+                    {(() => {
+                      const label = m.who === "in" ? conv.nombre : m.agent;
+                      return label ? <div className={"mb-0.5 text-[10px] font-semibold " + (m.who === "in" ? "pl-1 text-zinc-400" : "pr-1 text-right text-brand-400/80")}>{label}</div> : null;
+                    })()}
                     {m.system ? <div className="flex items-center gap-2 rounded-lg border border-line bg-ink-900 px-3 py-1.5 text-[11px] text-zinc-400"><I.Search className="h-3.5 w-3.5 text-brand-400 animate-live" /> {txt}</div> :
                       <div className={"whitespace-pre-wrap rounded-2xl px-3 py-2 text-[13px] leading-snug " + (m.who === "in" ? "rounded-bl-sm bg-ink-800" : "rounded-br-sm bg-brand-600/80 text-white")}>{txt}
                         {m.card === "resultados" && <div className="mt-2 space-y-1">{resultados.map((r) => <div key={r.t} className="flex items-center gap-2 rounded-lg border border-line bg-black/30 px-2 py-1.5"><span className="grid h-7 w-7 place-items-center rounded bg-brand-400/15 font-mono text-[10px] font-bold text-brand-300">{r.match}</span><div className="min-w-0 flex-1"><div className="truncate text-[11px] font-semibold">{r.t}</div><div className="text-[10px] text-zinc-500">{r.zona} · {r.src}</div></div><span className="font-mono text-[11px] text-brand-300">{r.precio}</span></div>)}</div>}

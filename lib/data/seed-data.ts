@@ -124,10 +124,9 @@ export const VISITA: Visita = {
 
 export const DEMANDA: number[] = [3, 4, 5, 7, 6, 8, 11, 14, 12, 9, 7, 5, 6, 8, 11, 14, 17, 19, 16, 12, 9, 7, 5, 4];
 
-// Jerarquía de 4 niveles (SaaS multi-tenant).
+// Jerarquía de 3 niveles (una sola inmobiliaria).
 export const ROLES: Rol[] = [
-  { r: "Super Admin", d: "Plataforma (Honex). Da de alta inmobiliarias y ve cross-tenant (saltea el filtro de tenant). No pertenece a ninguna inmobiliaria." },
-  { r: "Administrador", d: "Admin de SU inmobiliaria: audita sus conversaciones, ve sus números y métricas, asigna. No ve otras inmobiliarias." },
-  { r: "Operador", d: "Solo ve las conversaciones / leads asignados a él, dentro de su inmobiliaria." },
-  { r: "Agente de visitas", d: "Recibe las visitas asignadas y sube el transcripto post-visita, dentro de su inmobiliaria." },
+  { r: "Administrador", d: "Admin del panel: audita las conversaciones, ve los números y métricas, y asigna leads." },
+  { r: "Operador", d: "Solo ve las conversaciones / leads asignados a él." },
+  { r: "Agente de visitas", d: "Recibe las visitas asignadas y sube el transcripto post-visita." },
 ];
