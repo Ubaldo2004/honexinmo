@@ -250,7 +250,7 @@ export class SupabaseRepository implements HonexRepository {
   async getBusquedas(): Promise<Busqueda[]> {
     const { data, error } = await this.db
       .from("busquedas")
-      .select("lead_label, criterios, ancla, fuentes, resultados, hora_label, leads(ancla)")
+      .select("lead_id, lead_label, criterios, ancla, fuentes, resultados, hora_label, leads(ancla)")
       .order("creada_at", { ascending: false });
     if (error) throw error;
     return (data ?? []).map((r): Busqueda => {
@@ -259,6 +259,7 @@ export class SupabaseRepository implements HonexRepository {
       // la página le aplica anclaLabel(). Fallback a la columna ancla de la búsqueda.
       return {
         lead: (r.lead_label as string) ?? "",
+        leadId: (r.lead_id as string) ?? undefined,
         criterios: (r.criterios as string) ?? "",
         ancla: (l?.ancla as string) ?? (r.ancla as string) ?? "",
         fuentes: (r.fuentes as string) ?? "",

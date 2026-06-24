@@ -95,6 +95,7 @@ export interface Lead {
 
 export interface Busqueda {
   lead: string;
+  leadId?: string;   // para agrupar por usuario (no solo por nombre)
   criterios: string;
   ancla: string;
   fuentes: string;
