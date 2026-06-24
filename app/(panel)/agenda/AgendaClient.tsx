@@ -13,12 +13,10 @@ export default function AgendaClient({
   vendedores,
   slots,
   currentUserId,
-  esAdmin,
 }: {
   vendedores: Vend[];
   slots: Range[];
   currentUserId: string;
-  esAdmin: boolean;
 }) {
   const [ranges, setRanges] = useState<Range[]>(slots);
 
@@ -29,7 +27,11 @@ export default function AgendaClient({
   return (
     <div className="space-y-4">
       {vendedores.map((v) => {
-        const editable = esAdmin || v.id === currentUserId;
+        // Solo el propio agente de visitas edita su agenda. El admin (o cualquier otro) la ve
+        // en solo lectura, y únicamente los días con horarios cargados.
+        const editable = v.id === currentUserId;
+        const vendRanges = ranges.filter((r) => r.usuarioId === v.id);
+        const dias = editable ? DIAS : DIAS.filter((d) => vendRanges.some((r) => r.dia === d));
         return (
           <Card key={v.id} className="p-4">
             <div className="mb-2 flex items-center justify-between">
@@ -39,19 +41,23 @@ export default function AgendaClient({
               </div>
               {!editable && <span className="text-[11px] text-zinc-600">solo lectura</span>}
             </div>
-            <div>
-              {DIAS.map((d) => (
-                <DiaAgenda
-                  key={d}
-                  vend={v}
-                  dia={d}
-                  editable={editable}
-                  ranges={ranges.filter((r) => r.usuarioId === v.id && r.dia === d)}
-                  onAdd={(r) => setRanges((prev) => [...prev, r])}
-                  onRemove={(id) => setRanges((prev) => prev.filter((r) => r.id !== id))}
-                />
-              ))}
-            </div>
+            {dias.length === 0 ? (
+              <div className="text-[12px] text-zinc-600">Sin horarios cargados.</div>
+            ) : (
+              <div>
+                {dias.map((d) => (
+                  <DiaAgenda
+                    key={d}
+                    vend={v}
+                    dia={d}
+                    editable={editable}
+                    ranges={vendRanges.filter((r) => r.dia === d)}
+                    onAdd={(r) => setRanges((prev) => [...prev, r])}
+                    onRemove={(id) => setRanges((prev) => prev.filter((r) => r.id !== id))}
+                  />
+                ))}
+              </div>
+            )}
           </Card>
         );
       })}

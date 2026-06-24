@@ -31,7 +31,6 @@ export default async function AgendaPage() {
           horaFin: (s.hora_fin as string).slice(0, 5),
         }))}
         currentUserId={ctx?.userId ?? ""}
-        esAdmin={!!esAdmin}
       />
     </Page>
   );
