@@ -76,10 +76,18 @@ async function getDolar(): Promise<number> {
 
 // ── IA del bot ───────────────────────────────────────────────
 function systemPrompt(dolar: number, ancla: string | null, mostradas: string) {
-  return `Sos el asistente virtual de ${INMO_NOMBRE}, una inmobiliaria de Rosario. Atendés por chat a compradores que vienen de una campaña.
+  return `Atendés el chat de ${INMO_NOMBRE}, una inmobiliaria de Rosario. Te escriben compradores que llegaron desde una campaña. Sos parte del equipo y escribís como una persona real, NUNCA como un asistente automático ni un bot.
 ${ancla ? `\nCONTEXTO IMPORTANTE: este comprador llegó desde un aviso interesado en esta propiedad (ancla): "${ancla}". Tenela presente en toda la charla, referite a ella cuando sume, y si no aclara otra cosa asumí que busca algo parecido. Si pide algo distinto, seguilo igual.\n` : ""}
 
-Tu objetivo es conversar natural y cálido (tuteo rioplatense, mensajes cortos, algún emoji) y CALIFICAR bien al comprador ANTES de buscar. Datos que necesitás juntar:
+CÓMO HABLÁS (clave para no sonar a bot):
+- Como en un chat real entre personas: rioplatense natural (vos, tenés, buscás, dale, mirá), mensajes cortos, cálido y relajado.
+- NUNCA te presentes como "asistente", "asistente virtual" ni "bot". Si te preguntan quién sos, sos alguien del equipo de ${INMO_NOMBRE}.
+- Emoji con cuentagotas: uno cada tanto SOLO si de verdad suma, NO en cada mensaje.
+- NO repitas ni recapitules lo que te dijo como confirmación ("Busco en X, 2 ambientes hasta…"). Eso suena a robot: tomá el dato y seguí natural.
+- Variá las frases. No arranques siempre con las mismas muletillas ("Genial", "Buenísimo", "Perfecto").
+- Que no parezca un formulario: encadená la charla con naturalidad, como lo haría una persona.
+
+Tu objetivo es charlar natural y CALIFICAR bien al comprador ANTES de buscar. Datos que necesitás juntar:
 1) operación (venta o alquiler)
 2) tipo (casa, departamento, PH, terreno, local…)
 3) zona o ciudad
@@ -97,7 +105,7 @@ Ejemplo: [BUSCAR: Casa en venta en Funes, 3 dormitorios, 2 baños, con cochera, 
 - Si después de ver resultados el comprador quiere agregar o cambiar detalles, incorporá lo nuevo y volvé a emitir un [BUSCAR: ...] actualizado.
 
 Coordinar la visita (cuando el comprador muestra INTERÉS REAL en una propiedad: quiere ir a verla, visitarla o avanzar):
-- PRIMERO preguntá su disponibilidad: "¡Buenísimo! Para coordinar la visita, ¿qué días te quedan bien y en qué franja, mañana o tarde?"
+- PRIMERO preguntale, con tus palabras (sin frase armada), qué días le quedan bien para ir a verla y si prefiere a la mañana o a la tarde.
 - Cuando te dé su disponibilidad, respondé ÚNICAMENTE con estas DOS líneas (el cliente NO las ve; las usa el sistema para registrar cuándo puede y asignarle solo un vendedor libre para ese horario):
 [[DISPO: <días y franjas normalizados, ej: martes tarde, jueves mañana>]]
 [ASIGNAR: ]
@@ -517,8 +525,8 @@ async function responderBot(convId: string, chatId: number | string) {
     const reason = slotLabel ? `Visita ${slotLabel} · ${nombre}` : `Derivado a ${nombre}`;
     await asignarConv(convId, (conv.lead_id as string) ?? null, nombre, reason);
     reply = slotLabel
-      ? `¡Listo! Te asigné a ${nombre}, que está disponible el ${slotLabel} 🙌 En breve coordina la visita con vos. ¡Gracias por escribirnos!`
-      : `¡Listo! Te asigné a ${nombre} 🙌 En breve coordina con vos el día y horario de la visita. ¡Gracias por escribirnos!`;
+      ? `Listo, lo coordino con ${nombre}, que tiene libre el ${slotLabel}. En un rato se contacta con vos para cerrar la visita. Cualquier cosa, acá estoy.`
+      : `Listo, lo coordino con ${nombre}. En un rato se contacta con vos para arreglar el día y horario de la visita. Cualquier cosa, acá estoy.`;
   } else {
     const m = reply.match(/\[BUSCAR:\s*([\s\S]+?)\]/i);
     if (m) {
@@ -607,8 +615,8 @@ function prettifyAncla(payload: string): string {
 // Saludo inicial (al hacer /start). Si vino con ancla, lo ancla en esa propiedad.
 async function saludoInicial(convId: string, chatId: number | string, ancla: string | null) {
   const saludo = ancla
-    ? `¡Hola! 👋 Vi que te interesó ${ancla}. Soy el asistente de ${INMO_NOMBRE}. ¿La buscás para vos? Contame un poco qué estás necesitando y te ayudo 🙌`
-    : `¡Hola! 👋 Soy el asistente de ${INMO_NOMBRE}. Contame qué propiedad estás buscando (operación, zona, presupuesto) y te ayudo a encontrarla.`;
+    ? `¡Hola! Vi que te interesó ${ancla} 👀 ¿La estás buscando para vos? Contame un poco qué necesitás y te doy una mano.`
+    : `¡Hola! ¿Qué estás buscando? Contame operación, zona y presupuesto y te ayudo a encontrar algo que te cierre.`;
   const msgId = await enviarTelegram(chatId, saludo);
   const ts = horaLabel();
   await db.from("mensajes").insert({
