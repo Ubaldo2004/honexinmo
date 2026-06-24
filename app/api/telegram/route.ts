@@ -224,9 +224,14 @@ async function buscarPropiedades(query: string): Promise<Prop[]> {
       body: JSON.stringify({ telegram_id: siguienteVendedor(), filtros: query, limit: 15 }),
     });
     const data = await res.json();
-    const api = Array.isArray(data?.api?.propiedades) ? data.api.propiedades : [];
-    const red = Array.isArray(data?.red?.propiedades) ? data.red.propiedades : [];
-    return [...api, ...red].slice(0, 15);
+    // El motor ahora devuelve una lista plana `propiedades`. Fallback al api/red viejo.
+    const lista: Prop[] = Array.isArray(data?.propiedades)
+      ? data.propiedades
+      : [
+          ...(Array.isArray(data?.api?.propiedades) ? data.api.propiedades : []),
+          ...(Array.isArray(data?.red?.propiedades) ? data.red.propiedades : []),
+        ];
+    return lista.slice(0, 15);
   } catch (e) {
     console.error("buscar:", (e as Error).message);
     return [];

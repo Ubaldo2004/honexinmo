@@ -70,19 +70,21 @@ export async function POST(req: Request) {
     }
 
     const data = await res.json();
-    const api = Array.isArray(data?.api?.propiedades) ? data.api.propiedades : [];
-    const red = Array.isArray(data?.red?.propiedades) ? data.red.propiedades : [];
-    const propiedades = [
-      ...api.map((p: Record<string, unknown>) => ({ ...p, origen: "propia" })),
-      ...red.map((p: Record<string, unknown>) => ({ ...p, origen: "red" })),
-    ];
+    // El motor ahora devuelve una lista plana `propiedades` (cada una con su `origen`).
+    // Fallback al formato viejo api/red por si algún webhook todavía lo usa.
+    const propiedades: Record<string, unknown>[] = Array.isArray(data?.propiedades)
+      ? data.propiedades
+      : [
+          ...(Array.isArray(data?.api?.propiedades) ? data.api.propiedades.map((p: Record<string, unknown>) => ({ ...p, origen: "propia" })) : []),
+          ...(Array.isArray(data?.red?.propiedades) ? data.red.propiedades.map((p: Record<string, unknown>) => ({ ...p, origen: "red" })) : []),
+        ];
 
     return NextResponse.json({
       ok: true,
       descripcion: data?.filtros_aplicados?.descripcion ?? "",
       total: data?.total_combinado ?? propiedades.length,
-      total_propias: api.length,
-      total_red: red.length,
+      total_propias: propiedades.filter((p) => p.origen === "propia").length,
+      total_red: propiedades.filter((p) => p.origen === "red").length,
       propiedades,
     });
   } catch (e) {
