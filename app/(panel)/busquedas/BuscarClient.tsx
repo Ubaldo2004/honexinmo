@@ -1,13 +1,10 @@
 "use client";
 
 // Buscador EN VIVO: pega al motor real (n8n → buscar_propiedad modo 1) vía /api/buscar.
-// MVP: el vendedor se pasa por id (demo: Ubaldo). El selector por nombre viene después.
+// El vendedor lo resuelve el server: agarra un agente de visitas al azar (como el bot).
 
 import { useState } from "react";
 import { Card } from "@/components/panel/ui";
-
-// Vendedor demo (Ubaldo) — se reemplaza por un selector contra la tabla `vendedores`.
-const VENDEDOR_DEMO = "25e94c02-03ee-4272-8003-57f6dcebd36c";
 
 type Propiedad = {
   ubicacion?: string;
@@ -41,7 +38,6 @@ function precioFmt(p: Propiedad) {
 
 export function BuscarClient() {
   const [filtros, setFiltros] = useState("");
-  const [vendedor, setVendedor] = useState(VENDEDOR_DEMO);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Respuesta | null>(null);
@@ -54,7 +50,7 @@ export function BuscarClient() {
       const res = await fetch("/api/buscar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filtros, vendedor_id: vendedor, limit: 10 }),
+        body: JSON.stringify({ filtros, limit: 10 }),
       });
       const json: Respuesta = await res.json();
       if (!json.ok) throw new Error(json.error ?? "error del motor");
@@ -79,18 +75,10 @@ export function BuscarClient() {
           placeholder="¿Qué busca el comprador? Ej: Departamento 2 ambientes en Pichincha hasta 90.000 USD"
           className="w-full resize-none rounded-lg border border-line bg-ink-850 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-brand-400/50"
         />
-        <div className="mt-3 flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-[11px] text-zinc-500">
-            Vendedor (id)
-            <input
-              value={vendedor}
-              onChange={(e) => setVendedor(e.target.value)}
-              className="w-[320px] max-w-full rounded-lg border border-line bg-ink-850 px-3 py-1.5 font-mono text-xs text-zinc-300 outline-none focus:border-brand-400/50"
-            />
-          </label>
+        <div className="mt-3 flex justify-end">
           <button
             onClick={buscar}
-            disabled={loading || !filtros.trim() || !vendedor.trim()}
+            disabled={loading || !filtros.trim()}
             className="rounded-lg border border-brand-400/50 bg-brand-400/15 px-4 py-2 text-xs font-semibold text-brand-200 transition hover:bg-brand-400/25 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Buscando…" : "Buscar"}
