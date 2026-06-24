@@ -16,7 +16,6 @@ const NAV = [
   { href: "/visitas", t: "Visitas", icon: I.Doc },
   { href: "/agenda", t: "Agenda", icon: I.Calendar },
   { href: "/operaciones", t: "Operaciones", icon: I.Coins },
-  { href: "/sistema", t: "Sistema", icon: I.Bot },
   { href: "/usuarios", t: "Usuarios", icon: I.Settings },
 ];
 
