@@ -7,7 +7,6 @@ export default async function AccionesPage() {
   const acciones = await (await getRepository()).getAcciones();
   return (
     <Page>
-      <p className="mb-4 max-w-2xl text-sm text-zinc-400">El lead arranca asignado al <span className="text-brand-300">bot</span>. Cuando quiere una <strong>visita</strong>, se avisa al <strong>colega</strong> y se asigna un agente. Si avanza una <strong>operación</strong>, pasa a un humano y el bot queda OFF. (No hay comprobantes de pago.)</p>
       <Card className="overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
           <thead className="border-b border-line bg-ink-850 text-left text-xs text-zinc-500"><tr><th className="px-4 py-2.5">Tipo</th><th className="px-4 py-2.5">Lead</th><th className="px-4 py-2.5">Detalle</th><th className="px-4 py-2.5">Prioridad</th><th className="px-4 py-2.5">Cuándo</th><th className="px-4 py-2.5"></th></tr></thead>

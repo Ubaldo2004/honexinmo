@@ -16,14 +16,20 @@ export default async function AgendaPage() {
 
   const ids = (vendedores ?? []).map((v) => v.id as string);
   const { data: slots } = ids.length
-    ? await db.from("disponibilidad_agente").select("usuario_id, dia, franja").in("usuario_id", ids)
-    : { data: [] as { usuario_id: string; dia: string; franja: string }[] };
+    ? await db.from("disponibilidad_agente").select("id, usuario_id, dia, hora_inicio, hora_fin").in("usuario_id", ids)
+    : { data: [] as { id: string; usuario_id: string; dia: string; hora_inicio: string; hora_fin: string }[] };
 
   return (
     <Page>
       <AgendaClient
         vendedores={(vendedores ?? []).map((v) => ({ id: v.id as string, nombre: v.nombre as string, rol: v.rol as string }))}
-        slots={(slots ?? []).map((s) => `${s.usuario_id}|${s.dia}|${s.franja}`)}
+        slots={(slots ?? []).map((s) => ({
+          id: s.id as string,
+          usuarioId: s.usuario_id as string,
+          dia: s.dia as string,
+          horaInicio: (s.hora_inicio as string).slice(0, 5),
+          horaFin: (s.hora_fin as string).slice(0, 5),
+        }))}
         currentUserId={ctx?.userId ?? ""}
         esAdmin={!!esAdmin}
       />

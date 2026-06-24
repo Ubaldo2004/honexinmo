@@ -14,7 +14,6 @@ export default async function SistemaPage() {
   const piezas = await (await getRepository()).getPiezas();
   return (
     <Page>
-      <p className="mb-4 max-w-2xl text-sm text-zinc-400">Tres piezas: un <strong>bot</strong> que conversa, un <strong>motor</strong> que busca (no es agente) y un <strong>agente analista</strong> que entrena el sistema.</p>
       <div className="grid gap-4 lg:grid-cols-3">{piezas.map((a) => { const Icon = ICONS[a.icon]; return (
         <Card key={a.key} className="p-5">
           <div className="flex items-center gap-3"><div className={"grid h-11 w-11 place-items-center rounded-xl bg-white/5 " + a.color}><Icon className="h-6 w-6" /></div><div><div className="font-display text-lg font-bold">{a.nombre}</div><div className="text-[11px] text-zinc-500">{a.tipo === "motor" ? "motor (no agente)" : "agente LLM"}</div></div></div>

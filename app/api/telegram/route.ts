@@ -394,15 +394,28 @@ function parseDispo(s: string): { dia: string; franja: string }[] {
 }
 
 // Busca un vendedor del tenant libre en alguno de los slots pedidos → {nombre, slot} o null.
+// La agenda del vendedor son RANGOS DE HORA (hora_inicio..hora_fin). El cliente pide
+// "mañana" o "tarde": mapeamos un rango a mañana si empieza antes de las 13:00, y a
+// tarde si termina después de las 13:00. El slot que devolvemos muestra la hora real.
 async function matchVendedor(slots: { dia: string; franja: string }[]): Promise<{ nombre: string; slot: string } | null> {
   if (!slots.length) return null;
   const { data } = await db.from("disponibilidad_agente")
-    .select("dia, franja, usuarios(nombre)").eq("inmobiliaria_id", INMO_ID);
+    .select("dia, hora_inicio, hora_fin, usuarios(nombre)").eq("inmobiliaria_id", INMO_ID);
   for (const s of slots) {
-    const hit = (data ?? []).find((r) => r.dia === s.dia && r.franja === s.franja);
+    const hit = (data ?? []).find((r) => {
+      if (r.dia !== s.dia) return false;
+      const ini = (r.hora_inicio as string) ?? "";
+      const fin = (r.hora_fin as string) ?? "";
+      return s.franja === "mañana" ? ini < "13:00:00" : fin > "13:00:00";
+    });
     if (hit) {
       const u = (Array.isArray(hit.usuarios) ? hit.usuarios[0] : hit.usuarios) as { nombre?: string } | null;
-      if (u?.nombre) return { nombre: u.nombre, slot: `${s.dia} ${s.franja}` };
+      if (u?.nombre) {
+        const ini = ((hit.hora_inicio as string) ?? "").slice(0, 5);
+        const fin = ((hit.hora_fin as string) ?? "").slice(0, 5);
+        const horas = ini && fin ? ` ${ini}–${fin}` : "";
+        return { nombre: u.nombre, slot: `${s.dia}${horas}` };
+      }
     }
   }
   return null;

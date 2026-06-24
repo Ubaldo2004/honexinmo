@@ -290,7 +290,6 @@ function VisitaRow({ v, onDelete }: { v: VisitaItem; onDelete: (id: string) => v
               className="rounded-lg bg-brand-400 px-3 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-brand-300 disabled:opacity-50">
               {savingTxt ? "Guardando…" : "Guardar transcripto"}
             </button>
-            <span className="text-[11px] text-zinc-600">El Analista lo usará para armar el seguimiento.</span>
           </div>
         </div>
       )}

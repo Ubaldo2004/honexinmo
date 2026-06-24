@@ -6,6 +6,21 @@ import { F, estadoPill, anclaData, anclaLabel, type AnclaProp } from "@/componen
 import type { Conversacion, MensajeHilo, Resultado } from "@/lib/data/types";
 import { enviarMensaje, crearChat, asignarVendedor, corregirUltimoMensaje, marcarLeido, reactivarBot } from "./actions";
 
+type AnalisisChat = {
+  resumen?: string;
+  temperatura?: string;
+  busca?: string;
+  objeciones?: string[];
+  sugerencia?: string;
+  siguiente?: string;
+};
+
+const TEMP_PILL: Record<string, { c: string; t: string }> = {
+  caliente: { c: "bg-bad/15 text-bad", t: "🔥 caliente" },
+  tibio: { c: "bg-warn/15 text-warn", t: "🌤 tibio" },
+  frio: { c: "bg-sky-400/15 text-sky-300", t: "❄️ frío" },
+};
+
 function nuevaConv(id: string, nombre: string): Conversacion {
   return {
     id, nombre, tel: "", ancla: "", origen: "panel", last: "", t: "",
@@ -46,6 +61,8 @@ export default function ChatsClient({
   const [corrText, setCorrText] = useState("");
   const [guardandoCorr, setGuardandoCorr] = useState(false);
   const [reactivando, setReactivando] = useState(false);
+  const [analisis, setAnalisis] = useState<Record<string, AnalisisChat>>({}); // por conversación
+  const [analizando, setAnalizando] = useState(false);
   const [mobileChatAbierto, setMobileChatAbierto] = useState(false); // en celular: lista vs chat
   const [mobileInfo, setMobileInfo] = useState(false); // en celular: hoja con info del cliente
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -143,6 +160,26 @@ export default function ChatsClient({
     setReactivando(false);
   }
 
+  async function analizarChat() {
+    if (!conv || analizando) return;
+    const cid = conv.id;
+    setAnalizando(true);
+    try {
+      const res = await fetch("/api/analizar-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversacionId: cid }),
+      });
+      const j = await res.json();
+      if (!j.ok) { alert(j.error ?? "No se pudo analizar"); return; }
+      setAnalisis((p) => ({ ...p, [cid]: j.analisis as AnalisisChat }));
+    } catch {
+      alert("No se pudo analizar la conversación");
+    } finally {
+      setAnalizando(false);
+    }
+  }
+
   function abrirCorregir() {
     setCorrText(lastBotTexto);
     setCorrigiendo(true);
@@ -231,14 +268,14 @@ export default function ChatsClient({
               {hilo.map((m, i) => {
                 const txt = i === lastBotIdx && correccion ? correccion : m.t;
                 return (
-                <div key={i} className={"flex " + (m.who === "in" ? "justify-end" : "justify-start")}>
+                <div key={i} className={"flex " + (m.who === "in" ? "justify-start" : "justify-end")}>
                   <div className={"max-w-[85%] " + (m.system ? "w-full" : "")}>
-                    {m.agent && <div className="mb-0.5 pl-1 text-[10px] font-semibold text-brand-400/80">{m.agent}</div>}
+                    {m.agent && <div className={"mb-0.5 text-[10px] font-semibold text-brand-400/80 " + (m.who === "in" ? "pl-1" : "pr-1 text-right")}>{m.agent}</div>}
                     {m.system ? <div className="flex items-center gap-2 rounded-lg border border-line bg-ink-900 px-3 py-1.5 text-[11px] text-zinc-400"><I.Search className="h-3.5 w-3.5 text-brand-400 animate-live" /> {txt}</div> :
-                      <div className={"whitespace-pre-wrap rounded-2xl px-3 py-2 text-[13px] leading-snug " + (m.who === "in" ? "rounded-br-sm bg-brand-600/80 text-white" : "rounded-bl-sm bg-ink-800")}>{txt}
+                      <div className={"whitespace-pre-wrap rounded-2xl px-3 py-2 text-[13px] leading-snug " + (m.who === "in" ? "rounded-bl-sm bg-ink-800" : "rounded-br-sm bg-brand-600/80 text-white")}>{txt}
                         {m.card === "resultados" && <div className="mt-2 space-y-1">{resultados.map((r) => <div key={r.t} className="flex items-center gap-2 rounded-lg border border-line bg-black/30 px-2 py-1.5"><span className="grid h-7 w-7 place-items-center rounded bg-brand-400/15 font-mono text-[10px] font-bold text-brand-300">{r.match}</span><div className="min-w-0 flex-1"><div className="truncate text-[11px] font-semibold">{r.t}</div><div className="text-[10px] text-zinc-500">{r.zona} · {r.src}</div></div><span className="font-mono text-[11px] text-brand-300">{r.precio}</span></div>)}</div>}
                       </div>}
-                    <div className={"mt-0.5 text-[9px] text-zinc-600 " + (m.who === "in" ? "text-right" : "")}>{m.ts}</div>
+                    <div className={"mt-0.5 text-[9px] text-zinc-600 " + (m.who === "in" ? "" : "text-right")}>{m.ts}</div>
                   </div>
                 </div>
                 );
@@ -307,6 +344,51 @@ export default function ChatsClient({
             </div>
 
             <div className="mt-5 border-t border-line pt-4">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">🧠 Analista</div>
+                <button
+                  onClick={analizarChat}
+                  disabled={analizando}
+                  className="cursor-pointer rounded-md border border-brand-400/50 bg-brand-400/15 px-2.5 py-1 text-[11px] font-semibold text-brand-200 transition hover:bg-brand-400/25 disabled:opacity-50"
+                >
+                  {analizando ? "Analizando…" : analisis[conv.id] ? "↻ Re-analizar" : "Analizar chat"}
+                </button>
+              </div>
+              {(() => {
+                const an = analisis[conv.id];
+                if (!an) return null;
+                const temp = an.temperatura ? TEMP_PILL[an.temperatura] : undefined;
+                return (
+                  <div className="space-y-2.5 text-[13px]">
+                    {temp && <span className={"pill " + temp.c}>{temp.t}</span>}
+                    {an.resumen && <div className="leading-snug text-zinc-300">{an.resumen}</div>}
+                    {an.busca && (
+                      <div><div className="text-[11px] text-zinc-500">Qué busca</div><div className="leading-snug text-zinc-300">{an.busca}</div></div>
+                    )}
+                    {an.objeciones && an.objeciones.length > 0 && (
+                      <div>
+                        <div className="text-[11px] text-zinc-500">Objeciones / dudas</div>
+                        <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-zinc-300">{an.objeciones.map((o, i) => <li key={i}>{o}</li>)}</ul>
+                      </div>
+                    )}
+                    {an.sugerencia && (
+                      <div className="rounded-lg border border-brand-400/30 bg-brand-400/10 p-2.5">
+                        <div className="mb-1 flex items-center justify-between">
+                          <span className="text-[11px] font-semibold text-brand-300">💬 Respondé algo así</span>
+                          <button onClick={() => { navigator.clipboard?.writeText(an.sugerencia ?? ""); }} className="cursor-pointer text-[10px] text-zinc-400 hover:text-brand-200">copiar</button>
+                        </div>
+                        <div className="leading-snug text-brand-100">{an.sugerencia}</div>
+                      </div>
+                    )}
+                    {an.siguiente && (
+                      <div><div className="text-[11px] text-zinc-500">Próximo paso</div><div className="leading-snug text-zinc-300">{an.siguiente}</div></div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="mt-5 border-t border-line pt-4">
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Acciones</div>
               {!(conv.estado === "bot" && !tomadas[conv.id]) && (
                 <button
@@ -338,14 +420,12 @@ export default function ChatsClient({
                     <button onClick={guardarCorreccion} disabled={guardandoCorr || !corrText.trim()} className="rounded-lg bg-brand-400 px-3 py-1.5 text-xs font-semibold text-ink-950 hover:bg-brand-300 disabled:opacity-50">{guardandoCorr ? "Guardando…" : "Guardar corrección"}</button>
                     <button onClick={() => setCorrigiendo(false)} className="text-xs text-zinc-400 hover:text-zinc-200">cancelar</button>
                   </div>
-                  <p className="text-[10px] text-zinc-600">Edita el mismo mensaje que ya vio el cliente en Telegram.</p>
                 </div>
               )}
             </div>
 
             <div className="mt-5 border-t border-line pt-4">
               <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Derivar a vendedor</div>
-              <p className="mb-2 text-[11px] leading-snug text-zinc-600">Solo aparecen los agentes de visitas con disponibilidad en su agenda. El bot sigue leyendo la conversación.</p>
               {vendedores.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-line bg-ink-850 px-3 py-2 text-[11px] text-zinc-500">
                   Ningún agente con disponibilidad ahora mismo. Cargá horarios libres en <span className="text-brand-300">Agenda</span>.
