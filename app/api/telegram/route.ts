@@ -118,6 +118,7 @@ ${mostradas}
 Manejo de estas propiedades:
 - Si el cliente elige o pregunta por una ("la 1", "la primera", "la de Funes"…), dale MÁS detalles de ESA usando SOLO los datos de arriba (no inventes nada que no esté), y preguntale si es la que quiere ir a ver.
 - Cuando el cliente muestre interés concreto en UNA propiedad de las mostradas ("la 1", "esta me gusta", "quiero ver la de Funes", etc.), respondé normal Y AGREGÁ al final de tu mensaje, en una línea aparte, esta etiqueta OCULTA que el cliente NO ve (la usa el sistema para registrar la propiedad de interés): [[INTERES: <NÚMERO de la opción elegida, ej: 1>]]. Tiene que ser el número tal cual aparece en la lista de arriba.
+- FOTOS: si el cliente pide ver fotos de una propiedad, o elige una para ir a verla, decile algo corto y natural ("dale, te paso unas fotos de esa") Y AGREGÁ al final, en una línea aparte, la etiqueta OCULTA [[FOTOS: <NÚMERO de la opción, ej: 1>]] — el cliente NO la ve; el sistema le manda las fotos solo. Antes de coordinar la visita, ofrecele ver fotos para que no vaya a ciegas.
 - Si quiere cambiar a otra de la lista, mostrale los detalles de esa otra (y actualizá la etiqueta [[INTERES: <número>]] a la nueva opción).
 - Si NINGUNA le gustó, o pide ver MÁS / OTRAS / NUEVAS, no repreguntes de más: emití directamente un [BUSCAR: ...] (podés ampliar o variar zona/precio) — el sistema le va a traer propiedades DISTINTAS a las ya mostradas.` : ""}`;
 }
@@ -385,6 +386,17 @@ async function enviarTelegram(chatId: number | string, text: string): Promise<nu
   }
 }
 
+// Manda una foto (por URL) al chat. Si falla, seguimos sin romper.
+async function enviarFoto(chatId: number | string, fotoUrl: string, caption?: string) {
+  try {
+    await fetch(`${API}/sendPhoto`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, photo: fotoUrl, caption: caption || undefined }),
+    });
+  } catch { /* si falla, seguimos */ }
+}
+
 // Saca cualquier emoji del texto. Garantía dura: el bot NUNCA manda emojis,
 // aunque el modelo igual los meta.
 function sinEmojis(t: string): string {
@@ -539,6 +551,23 @@ async function responderBot(convId: string, chatId: number | string) {
     }
   }
 
+  // Etiqueta oculta de fotos → juntamos la(s) foto(s) de la(s) propiedad(es) pedida(s).
+  // Se mandan al final, después del texto.
+  const fotosAEnviar: { url: string; caption: string }[] = [];
+  const mf = reply.match(/\[\[FOTOS:\s*([\s\S]*?)\]\]/i);
+  if (mf) {
+    const raw = mf[1].trim();
+    reply = reply.replace(/\[\[FOTOS:[\s\S]*?\]\]/i, "").trim();
+    const nums = /toda/i.test(raw)
+      ? ultimasMostradas.map((_, i) => i + 1)
+      : (raw.match(/\d+/g) ?? []).map((n: string) => parseInt(n, 10));
+    for (const n of nums) {
+      const p = ultimasMostradas[n - 1];
+      const url = p && typeof p.foto === "string" ? (p.foto as string) : null;
+      if (url) fotosAEnviar.push({ url, caption: `Opción ${n} — ${(p.tipo as string) || "Propiedad"} en ${zonaCorta(p.ubicacion as string)}` });
+    }
+  }
+
   // Etiqueta oculta de disponibilidad → la guardamos en el lead (para coordinar la visita).
   const md = reply.match(/\[\[DISPO:\s*([\s\S]*?)\]\]/i);
   if (md) {
@@ -602,6 +631,11 @@ async function responderBot(convId: string, chatId: number | string) {
   // El bot puede mandar más de un mensaje corto seguido: los separa con [[NEXT]] (máx 3).
   const partes = reply.split(/\s*\[\[NEXT\]\]\s*/i).map((s: string) => s.trim()).filter(Boolean);
   await enviarMensajes(convId, chatId, partes.length ? partes.slice(0, 3) : [reply]);
+
+  // Y al final, las fotos de la(s) propiedad(es) que pidió ver.
+  for (const f of fotosAEnviar) {
+    await enviarFoto(chatId, f.url, sinEmojis(f.caption));
+  }
 }
 
 type TgChat = { id: number; title?: string };
