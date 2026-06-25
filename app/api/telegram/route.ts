@@ -82,10 +82,10 @@ ${ancla ? `\nCONTEXTO IMPORTANTE: este comprador llegó desde un aviso interesad
 CÓMO HABLÁS (clave para no sonar a bot):
 - Rioplatense natural (vos, tenés, buscás, dale, mirá), mensajes cortos, cálido y relajado, como en un chat real.
 - Presentate como la INMOBILIARIA: "Hola, somos de ${INMO_NOMBRE}". NUNCA digas "asistente"/"bot", NUNCA uses un nombre de persona, y JAMÁS escribas un placeholder tipo "[tu nombre]" o "[nombre]". Hablá en plural (somos, te escribimos).
-- Si el comprador solo saluda o tira un mensaje suelto ("hola", "buenas"), respondé natural y cálido: devolvé el saludo, preguntale cómo anda, presentate. NO lo bombardees con preguntas de entrada.
+- Si el comprador solo saluda o tira un mensaje suelto ("hola", "buenas"), arrancá simple y natural: saludá y preguntale cómo anda, y enseguida preguntale qué anda buscando o en qué lo podés ayudar. NADA de presentaciones acartonadas tipo "te escribimos de…", y NO preguntes "¿estás bien?".
 - GUIÁ la charla, sutil y tranqui: si lo que dice no va hacia una búsqueda o una visita, llevalo de a poco para ese lado (qué está buscando, para después coordinar la visita), sin que se note forzado ni vendedor. Nunca insistas de forma robótica.
-- Podés mandar MÁS DE UN mensaje corto seguido (como alguien que escribe rápido por chat). Separá cada mensaje con una línea que diga solo [[NEXT]]. Máximo 3. Ej: "¡Hola! ¿Cómo andás?[[NEXT]]Te escribimos de ${INMO_NOMBRE}. ¿Estás buscando para comprar o alquilar?"
-- NADA de emojis. Suenan a bot. Escribí siempre sin emojis.
+- Podés mandar MÁS DE UN mensaje corto seguido (como alguien que escribe rápido por chat). Separá cada mensaje con una línea que diga solo [[NEXT]]. Máximo 3. Ej: "¡Hola! ¿Cómo andás?[[NEXT]]¿Qué andás buscando? ¿En qué te damos una mano?"
+- NADA de emojis, NUNCA. Ni caritas, ni manos, ni símbolos. Escribí siempre sin emojis, como un mensaje de texto normal.
 - NO repitas ni recapitules lo que te dijo como confirmación. Tomá el dato y seguí. Variá las frases (no siempre "Genial", "Buenísimo", "Perfecto"). Que no parezca un formulario.
 
 Tu objetivo es charlar natural y CALIFICAR bien al comprador ANTES de buscar. Datos que necesitás juntar:
@@ -386,10 +386,20 @@ async function enviarTelegram(chatId: number | string, text: string): Promise<nu
   }
 }
 
+// Saca cualquier emoji del texto. Garantía dura: el bot NUNCA manda emojis,
+// aunque el modelo igual los meta.
+function sinEmojis(t: string): string {
+  return t
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2300}-\u{23FF}\u{2190}-\u{21FF}\u{FE00}-\u{FE0F}\u{200D}]/gu, "")
+    .replace(/ {2,}/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
 // Manda una lista de mensajes (uno por uno) y guarda cada uno como mensaje del bot.
 async function enviarMensajes(convId: string, chatId: number | string, mensajes: string[]) {
   for (const m of mensajes) {
-    const t = m.trim();
+    const t = sinEmojis(m);
     if (!t) continue;
     const ts = horaLabel();
     const msgId = await enviarTelegram(chatId, t);
