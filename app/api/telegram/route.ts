@@ -82,10 +82,11 @@ ${ancla ? `\nCONTEXTO IMPORTANTE: este comprador llegó desde un aviso interesad
 CÓMO HABLÁS (clave para no sonar a bot):
 - Rioplatense natural (vos, tenés, buscás, dale, mirá), mensajes cortos, cálido y relajado, como en un chat real.
 - Presentate como la INMOBILIARIA: "Hola, somos de ${INMO_NOMBRE}". NUNCA digas "asistente"/"bot", NUNCA uses un nombre de persona, y JAMÁS escribas un placeholder tipo "[tu nombre]" o "[nombre]". Hablá en plural (somos, te escribimos).
-- Andá al grano: saludá corto y enseguida preguntá qué está buscando. No te vayas por las ramas — la charla es para encontrarle una propiedad y coordinar la visita.
+- Si el comprador solo saluda o tira un mensaje suelto ("hola", "buenas"), respondé natural y cálido: devolvé el saludo, preguntale cómo anda, presentate. NO lo bombardees con preguntas de entrada.
+- GUIÁ la charla, sutil y tranqui: si lo que dice no va hacia una búsqueda o una visita, llevalo de a poco para ese lado (qué está buscando, para después coordinar la visita), sin que se note forzado ni vendedor. Nunca insistas de forma robótica.
+- Podés mandar MÁS DE UN mensaje corto seguido (como alguien que escribe rápido por chat). Separá cada mensaje con una línea que diga solo [[NEXT]]. Máximo 3. Ej: "¡Hola! ¿Cómo andás? 👋[[NEXT]]Te escribimos de ${INMO_NOMBRE}. ¿Estás buscando para comprar o alquilar?"
 - Emoji con cuentagotas: uno cada tanto SOLO si de verdad suma, NO en cada mensaje.
-- NO repitas ni recapitules lo que te dijo como confirmación. Tomá el dato y seguí.
-- Variá las frases, no uses siempre las mismas muletillas ("Genial", "Buenísimo", "Perfecto"). Que no parezca un formulario.
+- NO repitas ni recapitules lo que te dijo como confirmación. Tomá el dato y seguí. Variá las frases (no siempre "Genial", "Buenísimo", "Perfecto"). Que no parezca un formulario.
 
 Tu objetivo es charlar natural y CALIFICAR bien al comprador ANTES de buscar. Datos que necesitás juntar:
 1) operación (venta o alquiler)
@@ -95,7 +96,7 @@ Tu objetivo es charlar natural y CALIFICAR bien al comprador ANTES de buscar. Da
 5) ambientes o dormitorios
 
 Cómo manejarte:
-- Hacé UNA sola pregunta por mensaje. No abrumes.
+- Una cosa a la vez: no amontones varias preguntas juntas (un saludo + UNA pregunta está perfecto).
 - Si el comprador da MUY pocos datos (ej: solo "una casa", o solo una zona), NO busques todavía: pedile lo que falta, priorizando presupuesto y ambientes/dormitorios, que son los que más afinan la búsqueda.
 - Cuando tengas los 5 datos base, antes de buscar preguntá UNA vez si hay alguna preferencia importante (cochera, a estrenar, baños, balcón, patio, etc.). Si dice que no, o "mostrame lo que haya", buscá igual.
 - IMPORTANTE — el buscador trabaja en DÓLARES (USD). Si el comprador da el presupuesto en PESOS argentinos, convertilo a USD dividiendo por ${dolar} (dólar oficial de hoy) y poné el monto YA EN USD en el [BUSCAR:...]. Ejemplo: "hasta 200 millones de pesos" → hasta ${Math.round(200000000 / dolar)} USD. Si ya te lo da en dólares, usá ese número tal cual.
@@ -558,16 +559,26 @@ async function responderBot(convId: string, chatId: number | string) {
     }
   }
 
-  const msgId = await enviarTelegram(chatId, reply);
   // Si fue el mensaje de error, lo mandamos pero NO lo guardamos: así no envenena
   // el contexto de la próxima respuesta (la IA lo veía repetido y lo copiaba).
-  if (reply === FALLBACK) return;
-  const ts = horaLabel();
-  await db.from("mensajes").insert({
-    inmobiliaria_id: INMO_ID, conversacion_id: convId,
-    who: "bot", agent: "bottelegram", texto: reply, ts_label: ts, canal_msg_id: msgId,
-  });
-  await db.from("conversaciones").update({ ultimo_mensaje: reply.slice(0, 80), ultimo_label: ts }).eq("id", convId);
+  if (reply === FALLBACK) {
+    await enviarTelegram(chatId, reply);
+    return;
+  }
+
+  // El bot puede mandar más de un mensaje corto seguido: los separa con [[NEXT]].
+  // Cada parte se envía y se guarda como un mensaje aparte (máx 3).
+  const partes = reply.split(/\s*\[\[NEXT\]\]\s*/i).map((s: string) => s.trim()).filter(Boolean);
+  const aEnviar = partes.length ? partes.slice(0, 3) : [reply];
+  for (const parte of aEnviar) {
+    const ts = horaLabel();
+    const msgId = await enviarTelegram(chatId, parte);
+    await db.from("mensajes").insert({
+      inmobiliaria_id: INMO_ID, conversacion_id: convId,
+      who: "bot", agent: "bottelegram", texto: parte, ts_label: ts, canal_msg_id: msgId,
+    });
+    await db.from("conversaciones").update({ ultimo_mensaje: parte.slice(0, 80), ultimo_label: ts }).eq("id", convId);
+  }
 }
 
 type TgChat = { id: number; title?: string };
