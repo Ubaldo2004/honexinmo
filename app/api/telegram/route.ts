@@ -84,8 +84,8 @@ CÓMO HABLÁS (clave para no sonar a bot):
 - Presentate como la INMOBILIARIA: "Hola, somos de ${INMO_NOMBRE}". NUNCA digas "asistente"/"bot", NUNCA uses un nombre de persona, y JAMÁS escribas un placeholder tipo "[tu nombre]" o "[nombre]". Hablá en plural (somos, te escribimos).
 - Si el comprador solo saluda o tira un mensaje suelto ("hola", "buenas"), respondé natural y cálido: devolvé el saludo, preguntale cómo anda, presentate. NO lo bombardees con preguntas de entrada.
 - GUIÁ la charla, sutil y tranqui: si lo que dice no va hacia una búsqueda o una visita, llevalo de a poco para ese lado (qué está buscando, para después coordinar la visita), sin que se note forzado ni vendedor. Nunca insistas de forma robótica.
-- Podés mandar MÁS DE UN mensaje corto seguido (como alguien que escribe rápido por chat). Separá cada mensaje con una línea que diga solo [[NEXT]]. Máximo 3. Ej: "¡Hola! ¿Cómo andás? 👋[[NEXT]]Te escribimos de ${INMO_NOMBRE}. ¿Estás buscando para comprar o alquilar?"
-- Emoji con cuentagotas: uno cada tanto SOLO si de verdad suma, NO en cada mensaje.
+- Podés mandar MÁS DE UN mensaje corto seguido (como alguien que escribe rápido por chat). Separá cada mensaje con una línea que diga solo [[NEXT]]. Máximo 3. Ej: "¡Hola! ¿Cómo andás?[[NEXT]]Te escribimos de ${INMO_NOMBRE}. ¿Estás buscando para comprar o alquilar?"
+- NADA de emojis. Suenan a bot. Escribí siempre sin emojis.
 - NO repitas ni recapitules lo que te dijo como confirmación. Tomá el dato y seguí. Variá las frases (no siempre "Genial", "Buenísimo", "Perfecto"). Que no parezca un formulario.
 
 Tu objetivo es charlar natural y CALIFICAR bien al comprador ANTES de buscar. Datos que necesitás juntar:
@@ -126,7 +126,7 @@ type GeminiContent = { role: "user" | "model"; parts: { text: string }[] };
 
 // Mensaje que mandamos cuando la IA falla. OJO: NO se guarda en el historial ni
 // se usa como contexto — si no, la IA lo ve repetido y lo empieza a copiar (loop).
-const FALLBACK = "Uy, estoy con mucha demanda en este momento 🙏 Dame unos segundos y escribime de nuevo.";
+const FALLBACK = "Uy, estamos con mucha demanda en este momento. Dame unos segundos y escribime de nuevo.";
 
 async function llamarGemini(contents: GeminiContent[], dolar: number, ancla: string | null, mostradas: string) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
@@ -342,26 +342,33 @@ function scoreMatch(c: Criterios, p: Prop): number {
   return Math.max(0, Math.min(100, Math.round(s)));
 }
 
-function formatearResultados(query: string, props: Prop[], dolar: number) {
+// Devuelve VARIOS mensajes: uno por propiedad (con detalle, sin emojis) + un cierre.
+function formatearResultados(query: string, props: Prop[], dolar: number): string[] {
   if (!props.length) {
-    return `Busqué "${query}" pero no encontré nada con esos criterios. ¿Ampliamos un poco la zona o el presupuesto?`;
+    return [`Mirá, busqué con esos datos pero ahora mismo no me aparece nada que encaje. ¿Ampliamos un poco la zona o el presupuesto y vuelvo a fijarme?`];
   }
-  const bloques = props.map((p, i) => {
-    let precio = "Consultar";
+  const fichas = props.map((p, i) => {
+    let precio = "Precio a consultar";
     if (p.precio != null) {
       const usd = Number(p.precio);
       const ars = Math.round(usd * dolar);
-      precio = `${p.moneda || "USD"} ${usd.toLocaleString("es-AR")}  ·  ≈ $${ars.toLocaleString("es-AR")}`;
+      precio = `USD ${usd.toLocaleString("es-AR")} (aprox. $${ars.toLocaleString("es-AR")})`;
     }
-    const det = [
-      p.dormitorios ? `🛏 ${p.dormitorios} dorm` : null,
-      p.banos ? `🚿 ${p.banos} baños` : null,
-      p.sup_cubierta ? `📐 ${p.sup_cubierta} m²` : null,
-    ].filter(Boolean).join("  ·  ");
-    const match = typeof p.match === "number" ? `🎯 ${p.match}% coincidencia  ·  ` : "";
-    return `${i + 1}. ${match}${p.tipo || "Propiedad"} · ${zonaCorta(p.ubicacion)}\n💵 ${precio}${det ? `\n${det}` : ""}`;
+    const det: string[] = [];
+    if (p.dormitorios) det.push(`${p.dormitorios} dormitorio${Number(p.dormitorios) > 1 ? "s" : ""}`);
+    if (p.ambientes) det.push(`${p.ambientes} ambientes`);
+    if (p.banos) det.push(`${p.banos} baño${Number(p.banos) > 1 ? "s" : ""}`);
+    if (p.cocheras) det.push(`${p.cocheras} cochera${Number(p.cocheras) > 1 ? "s" : ""}`);
+    if (p.sup_cubierta) det.push(`${p.sup_cubierta} m² cubiertos`);
+    if (p.sup_total) det.push(`${p.sup_total} m² totales`);
+    if (p.antiguedad != null) det.push(Number(p.antiguedad) <= 0 ? "a estrenar" : `${p.antiguedad} años de antigüedad`);
+    const detTxt = det.length ? `\n${det.join(" · ")}` : "";
+    const dir = p.direccion ? `\nEstá en ${p.direccion}` : "";
+    const url = p.url ? `\nAcá la ficha con fotos: ${p.url}` : "";
+    return `Opción ${i + 1} — ${p.tipo || "Propiedad"} en ${zonaCorta(p.ubicacion)}\n${precio}${detTxt}${dir}${url}`;
   });
-  return `🔎 Tu búsqueda: ${query}\n\nOrdené las ${props.length} que más coinciden con lo que buscás (mejor primero) 👇\n\n${bloques.join("\n\n")}\n\n¿Te sirve alguna? Si querés afinar (más ambientes, cochera, otra zona u otro presupuesto) decime y busco de nuevo. También puedo coordinar una visita 🙂`;
+  const cierre = `Esas son las que más se acercan a lo que buscás. ¿Alguna te copa para ir a verla? Si no, decime qué ajustar (zona, presupuesto, ambientes) y busco de nuevo.`;
+  return [...fichas, cierre];
 }
 
 // Devuelve el message_id de Telegram (para poder editar ese mensaje luego), o null.
@@ -376,6 +383,21 @@ async function enviarTelegram(chatId: number | string, text: string): Promise<nu
     return (j?.result?.message_id as number) ?? null;
   } catch {
     return null;
+  }
+}
+
+// Manda una lista de mensajes (uno por uno) y guarda cada uno como mensaje del bot.
+async function enviarMensajes(convId: string, chatId: number | string, mensajes: string[]) {
+  for (const m of mensajes) {
+    const t = m.trim();
+    if (!t) continue;
+    const ts = horaLabel();
+    const msgId = await enviarTelegram(chatId, t);
+    await db.from("mensajes").insert({
+      inmobiliaria_id: INMO_ID, conversacion_id: convId,
+      who: "bot", agent: "bottelegram", texto: t, ts_label: ts, canal_msg_id: msgId,
+    });
+    await db.from("conversaciones").update({ ultimo_mensaje: t.slice(0, 80), ultimo_label: ts }).eq("id", convId);
   }
 }
 
@@ -547,7 +569,6 @@ async function responderBot(convId: string, chatId: number | string) {
         .map((p) => ({ ...p, match: scoreMatch(crit, p) }))
         .sort((a, b) => (b.match ?? 0) - (a.match ?? 0))
         .slice(0, 5);
-      reply = formatearResultados(query, aMostrar, dolar);
       await registrarBusqueda((conv.lead_id as string) ?? null, query, aMostrar.length);
       // Guardar las mostradas como estado interno (no va a Telegram ni al panel).
       if (aMostrar.length) {
@@ -556,6 +577,9 @@ async function responderBot(convId: string, chatId: number | string) {
           who: "bot", system: true, card: "resultados_data", texto: JSON.stringify(aMostrar), ts_label: horaLabel(),
         });
       }
+      // Cada propiedad va como un mensaje aparte + el cierre. Cortamos acá (ya enviamos).
+      await enviarMensajes(convId, chatId, formatearResultados(query, aMostrar, dolar));
+      return;
     }
   }
 
@@ -566,19 +590,9 @@ async function responderBot(convId: string, chatId: number | string) {
     return;
   }
 
-  // El bot puede mandar más de un mensaje corto seguido: los separa con [[NEXT]].
-  // Cada parte se envía y se guarda como un mensaje aparte (máx 3).
+  // El bot puede mandar más de un mensaje corto seguido: los separa con [[NEXT]] (máx 3).
   const partes = reply.split(/\s*\[\[NEXT\]\]\s*/i).map((s: string) => s.trim()).filter(Boolean);
-  const aEnviar = partes.length ? partes.slice(0, 3) : [reply];
-  for (const parte of aEnviar) {
-    const ts = horaLabel();
-    const msgId = await enviarTelegram(chatId, parte);
-    await db.from("mensajes").insert({
-      inmobiliaria_id: INMO_ID, conversacion_id: convId,
-      who: "bot", agent: "bottelegram", texto: parte, ts_label: ts, canal_msg_id: msgId,
-    });
-    await db.from("conversaciones").update({ ultimo_mensaje: parte.slice(0, 80), ultimo_label: ts }).eq("id", convId);
-  }
+  await enviarMensajes(convId, chatId, partes.length ? partes.slice(0, 3) : [reply]);
 }
 
 type TgChat = { id: number; title?: string };
@@ -631,8 +645,8 @@ function prettifyAncla(payload: string): string {
 // Saludo inicial (al hacer /start). Si vino con ancla, lo ancla en esa propiedad.
 async function saludoInicial(convId: string, chatId: number | string, ancla: string | null) {
   const saludo = ancla
-    ? `¡Hola! Somos de ${INMO_NOMBRE} 👋 Vi que te interesó ${ancla}. ¿La estás buscando para vos? Contanos qué necesitás y te damos una mano.`
-    : `¡Hola! Somos de ${INMO_NOMBRE} 👋 ¿Qué estás buscando? Contanos operación, zona y presupuesto y te ayudamos a encontrarlo.`;
+    ? `¡Hola! Somos de ${INMO_NOMBRE}. Vi que te interesó ${ancla}. ¿La estás buscando para vos? Contanos qué necesitás y te damos una mano.`
+    : `¡Hola! Somos de ${INMO_NOMBRE}. ¿Qué estás buscando? Contanos operación, zona y presupuesto y te ayudamos a encontrarlo.`;
   const msgId = await enviarTelegram(chatId, saludo);
   const ts = horaLabel();
   await db.from("mensajes").insert({
