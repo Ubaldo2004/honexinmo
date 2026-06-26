@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as I from "@/components/icons";
 import { F, estadoPill, anclaData, anclaLabel, type AnclaProp } from "@/components/panel/ui";
 import type { Conversacion, MensajeHilo, Resultado } from "@/lib/data/types";
-import { enviarMensaje, crearChat, asignarVendedor, asignarOperador, corregirUltimoMensaje, marcarLeido, reactivarBot } from "./actions";
+import { enviarMensaje, crearChat, asignarVendedor, asignarOperador, corregirUltimoMensaje, marcarLeido, reactivarBot, getHilo } from "./actions";
 
 type AnalisisChat = {
   resumen?: string;
@@ -50,7 +50,8 @@ export default function ChatsClient({
   const [conv, setConv] = useState<Conversacion | undefined>(
     initialConv ? { ...initialConv, unread: 0 } : undefined
   );
-  const [extra, setExtra] = useState<Record<string, MensajeHilo[]>>({});
+  // `live` = el hilo real de cada chat, refrescado por polling (en vivo, sin recargar).
+  const [live, setLive] = useState<Record<string, MensajeHilo[]>>({});
   const [tomadas, setTomadas] = useState<Record<string, boolean>>({});
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -69,7 +70,7 @@ export default function ChatsClient({
   const [mobileInfo, setMobileInfo] = useState(false); // en celular: hoja con info del cliente
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const hilo = conv ? [...(hilos[conv.id] ?? []), ...(extra[conv.id] ?? [])] : [];
+  const hilo = conv ? (live[conv.id] ?? hilos[conv.id] ?? []) : [];
 
   // Índice del último mensaje del bot (no resultados) → es el que se puede corregir.
   let lastBotIdx = -1;
@@ -83,6 +84,29 @@ export default function ChatsClient({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [hilo.length, conv?.id]);
+
+  // EN VIVO: refresca el hilo del chat abierto cada 4s (sin F5 ni recargar en celular).
+  const convId = conv?.id;
+  useEffect(() => {
+    if (!convId) return;
+    let cancel = false;
+    const tick = async () => {
+      try {
+        const h = await getHilo(convId);
+        if (!cancel) setLive((prev) => ({ ...prev, [convId]: h }));
+      } catch { /* fallo puntual: reintenta en el próximo tick */ }
+    };
+    tick();
+    const id = setInterval(tick, 4000);
+    return () => { cancel = true; clearInterval(id); };
+  }, [convId]);
+
+  async function refrescar(cid: string) {
+    try {
+      const h = await getHilo(cid);
+      setLive((prev) => ({ ...prev, [cid]: h }));
+    } catch { /* ignora */ }
+  }
 
   // Al abrir una conversación se marca como leída → resetea el contador de sin-leer.
   function marcarLeidoLocal(cid: string) {
@@ -123,15 +147,18 @@ export default function ChatsClient({
     if (!conv) return;
     const t = text.trim();
     if (!t || sending) return;
+    const cid = conv.id;
     const ts = new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
     const msg: MensajeHilo = { who: "bot", agent: "Operador", t, ts };
-    setExtra((prev) => ({ ...prev, [conv.id]: [...(prev[conv.id] ?? []), msg] }));
-    setConvList((prev) => prev.map((c) => (c.id === conv.id ? { ...c, last: t, t: ts } : c)));
+    // optimista: lo muestro al toque sobre el hilo en vivo
+    setLive((prev) => ({ ...prev, [cid]: [...(prev[cid] ?? hilos[cid] ?? []), msg] }));
+    setConvList((prev) => prev.map((c) => (c.id === cid ? { ...c, last: t, t: ts } : c)));
     setText("");
     setSending(true);
-    const res = await enviarMensaje(conv.id, t, ts);
+    const res = await enviarMensaje(cid, t, ts);
     setSending(false);
     if (!res.ok) console.error("No se pudo enviar:", res.error);
+    else refrescar(cid); // sincroniza con la DB (incluye lo que mandó el bot/cliente)
   }
 
   async function asignar(vendedor: string) {

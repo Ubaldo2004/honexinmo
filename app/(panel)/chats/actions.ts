@@ -2,6 +2,40 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getSessionContext } from "@/lib/auth";
+import type { MensajeHilo } from "@/lib/data/types";
+
+// Trae el hilo de una conversación (para refrescar el chat en vivo, sin recargar la página).
+export async function getHilo(conversacionId: string): Promise<MensajeHilo[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("mensajes")
+    .select("who, agent, texto, card, system, ts_label")
+    .eq("conversacion_id", conversacionId)
+    .order("enviado_at", { ascending: true });
+
+  const out: MensajeHilo[] = [];
+  for (const m of data ?? []) {
+    if (m.card === "resultados_data") continue; // estado interno del bot
+    const card = (m.card as string) ?? undefined;
+    let fotos: string[] | undefined;
+    if (card === "fotos") {
+      try {
+        const arr = JSON.parse(m.texto as string);
+        if (Array.isArray(arr)) fotos = arr.filter((u): u is string => typeof u === "string");
+      } catch { /* ignora */ }
+    }
+    out.push({
+      who: m.who as "bot" | "in",
+      agent: (m.agent as string) ?? undefined,
+      t: card === "fotos" ? "" : (m.texto as string),
+      ts: (m.ts_label as string) ?? "",
+      card: (card as MensajeHilo["card"]) ?? undefined,
+      fotos,
+      system: !!m.system,
+    });
+  }
+  return out;
+}
 
 // Crea un lead + su conversación (vacía) en el tenant del usuario. Para testear el flujo.
 export async function crearChat(
