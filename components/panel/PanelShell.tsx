@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import * as I from "@/components/icons";
@@ -46,6 +46,14 @@ export default function PanelShell({
     router.push("/login");
     router.refresh();
   }
+
+  // EN VIVO: refresca los datos del server cada 10s (soft refresh, sin recargar la página).
+  // Chats queda afuera: tiene su propio polling y estado local que no conviene pisar.
+  useEffect(() => {
+    if (pathname.startsWith("/chats")) return;
+    const id = setInterval(() => router.refresh(), 10000);
+    return () => clearInterval(id);
+  }, [pathname, router]);
 
   return (
     <div className="flex h-[100dvh] w-screen overflow-hidden bg-ink-950 text-[#e7e3da]">

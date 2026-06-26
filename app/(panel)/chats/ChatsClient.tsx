@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as I from "@/components/icons";
 import { F, estadoPill, anclaData, anclaLabel, type AnclaProp } from "@/components/panel/ui";
 import type { Conversacion, MensajeHilo, Resultado } from "@/lib/data/types";
-import { enviarMensaje, crearChat, asignarVendedor, asignarOperador, corregirUltimoMensaje, marcarLeido, reactivarBot, getHilo } from "./actions";
+import { enviarMensaje, crearChat, asignarVendedor, asignarOperador, corregirUltimoMensaje, marcarLeido, reactivarBot, getHilo, listarConversaciones } from "./actions";
 
 type AnalisisChat = {
   resumen?: string;
@@ -107,6 +107,28 @@ export default function ChatsClient({
       setLive((prev) => ({ ...prev, [cid]: h }));
     } catch { /* ignora */ }
   }
+
+  // EN VIVO: refresca la LISTA de chats cada 6s (chats nuevos, badges, último mensaje, estado).
+  const convIdRef = useRef(conv?.id);
+  useEffect(() => { convIdRef.current = convId; }, [convId]);
+  useEffect(() => {
+    let cancel = false;
+    const tick = async () => {
+      try {
+        const fresh = await listarConversaciones();
+        if (cancel) return;
+        const openId = convIdRef.current;
+        setConvList(fresh.map((f) => (f.id === openId ? { ...f, unread: 0 } : f)));
+        setConv((c) => {
+          if (!c) return c;
+          const f = fresh.find((x) => x.id === c.id);
+          return f ? { ...c, estado: f.estado, asignado: f.asignado, reason: f.reason, last: f.last, t: f.t } : c;
+        });
+      } catch { /* reintenta en el próximo tick */ }
+    };
+    const id = setInterval(tick, 6000);
+    return () => { cancel = true; clearInterval(id); };
+  }, []);
 
   // Al abrir una conversación se marca como leída → resetea el contador de sin-leer.
   function marcarLeidoLocal(cid: string) {

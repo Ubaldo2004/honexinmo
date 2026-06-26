@@ -2,7 +2,14 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getSessionContext } from "@/lib/auth";
-import type { MensajeHilo } from "@/lib/data/types";
+import { getRepository } from "@/lib/data";
+import type { MensajeHilo, Conversacion } from "@/lib/data/types";
+
+// Lista las conversaciones del tenant (para refrescar la lista del chat en vivo).
+export async function listarConversaciones(): Promise<Conversacion[]> {
+  const repo = await getRepository();
+  return repo.getConversaciones();
+}
 
 // Trae el hilo de una conversación (para refrescar el chat en vivo, sin recargar la página).
 export async function getHilo(conversacionId: string): Promise<MensajeHilo[]> {
