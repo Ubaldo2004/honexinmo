@@ -89,6 +89,46 @@ export async function asignarVendedor(
   return { ok: true };
 }
 
+// Pasa la conversación a un OPERADOR para que la maneje (bot falla o un humano la toma).
+// Deja la conversación en estado "handoff" → el bot deja de auto-responder.
+export async function asignarOperador(
+  conversacionId: string,
+  operador: string
+): Promise<{ ok: boolean; error?: string }> {
+  const v = operador.trim();
+  if (!v) return { ok: false, error: "operador vacío" };
+
+  const supabase = await createClient();
+
+  const { data: conv, error: e1 } = await supabase
+    .from("conversaciones")
+    .select("id, lead_id, inmobiliaria_id")
+    .eq("id", conversacionId)
+    .maybeSingle();
+  if (e1 || !conv) return { ok: false, error: e1?.message ?? "conversación no encontrada" };
+
+  // Resolver el uuid del operador dentro del tenant → habilita su RLS (asignado_a = auth.uid()).
+  const { data: u } = await supabase
+    .from("usuarios")
+    .select("id")
+    .eq("nombre", v)
+    .eq("inmobiliaria_id", conv.inmobiliaria_id)
+    .maybeSingle();
+  const asignadoA = (u?.id as string) ?? null;
+
+  const { error: e2 } = await supabase
+    .from("conversaciones")
+    .update({ asignado_a: asignadoA, asignado_label: v, estado: "handoff", reason: `Tomado por ${v}` })
+    .eq("id", conversacionId);
+  if (e2) return { ok: false, error: e2.message };
+
+  if (conv.lead_id) {
+    await supabase.from("leads").update({ asignado_a: asignadoA, asignado_label: v }).eq("id", conv.lead_id);
+  }
+
+  return { ok: true };
+}
+
 // Reactiva el bot en una conversación: vuelve a estado "bot" → el bot retoma el
 // auto-respondido por Telegram. Limpia el motivo del handoff.
 export async function reactivarBot(conversacionId: string): Promise<{ ok: boolean; error?: string }> {

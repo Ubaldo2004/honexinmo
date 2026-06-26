@@ -172,12 +172,21 @@ export class SupabaseRepository implements HonexRepository {
     for (const m of data ?? []) {
       if (m.card === "resultados_data") continue; // estado interno del bot (no se muestra)
       const cid = m.conversacion_id as string;
+      const card = (m.card as string) ?? undefined;
+      let fotos: string[] | undefined;
+      if (card === "fotos") {
+        try {
+          const arr = JSON.parse(m.texto as string);
+          if (Array.isArray(arr)) fotos = arr.filter((u): u is string => typeof u === "string");
+        } catch { /* ignora */ }
+      }
       (out[cid] ??= []).push({
         who: m.who as "bot" | "in",
         agent: (m.agent as string) ?? undefined,
-        t: m.texto as string,
+        t: card === "fotos" ? "" : (m.texto as string),
         ts: (m.ts_label as string) ?? "",
-        card: (m.card as "ficha" | "resultados") ?? undefined,
+        card: (card as MensajeHilo["card"]) ?? undefined,
+        fotos,
         system: !!m.system,
       });
     }

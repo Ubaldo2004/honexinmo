@@ -60,7 +60,8 @@ export interface MensajeHilo {
   agent?: string;
   t: string;
   ts: string;
-  card?: "ficha" | "resultados";
+  card?: "ficha" | "resultados" | "fotos";
+  fotos?: string[];
   system?: boolean;
 }
 

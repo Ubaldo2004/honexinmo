@@ -551,9 +551,10 @@ async function responderBot(convId: string, chatId: number | string) {
     }
   }
 
-  // Etiqueta oculta de fotos → juntamos la(s) foto(s) de la(s) propiedad(es) pedida(s).
-  // Se mandan al final, después del texto.
-  const fotosAEnviar: { url: string; caption: string }[] = [];
+  // Etiqueta oculta de fotos → juntamos VARIAS fotos de la(s) propiedad(es) pedida(s).
+  // Se mandan al final (cada foto un mensaje) y se guardan en el panel (card='fotos').
+  const fotosAEnviar: { url: string; caption?: string }[] = [];
+  const fotosPanel: string[][] = []; // por propiedad: lista de urls (para mostrar en el panel)
   const mf = reply.match(/\[\[FOTOS:\s*([\s\S]*?)\]\]/i);
   if (mf) {
     const raw = mf[1].trim();
@@ -563,8 +564,16 @@ async function responderBot(convId: string, chatId: number | string) {
       : (raw.match(/\d+/g) ?? []).map((n: string) => parseInt(n, 10));
     for (const n of nums) {
       const p = ultimasMostradas[n - 1];
-      const url = p && typeof p.foto === "string" ? (p.foto as string) : null;
-      if (url) fotosAEnviar.push({ url, caption: `Opción ${n} — ${(p.tipo as string) || "Propiedad"} en ${zonaCorta(p.ubicacion as string)}` });
+      if (!p) continue;
+      // Varias fotos si el motor manda `fotos` (array); si no, la única `foto`.
+      const urls = (Array.isArray(p.fotos) ? (p.fotos as unknown[]) : [])
+        .filter((u): u is string => typeof u === "string" && !!u);
+      if (!urls.length && typeof p.foto === "string" && p.foto) urls.push(p.foto as string);
+      const top = urls.slice(0, 6);
+      if (!top.length) continue;
+      const caption = `Opción ${n} — ${(p.tipo as string) || "Propiedad"} en ${zonaCorta(p.ubicacion as string)}`;
+      top.forEach((url, i) => fotosAEnviar.push({ url, caption: i === 0 ? caption : undefined }));
+      fotosPanel.push(top);
     }
   }
 
@@ -634,7 +643,15 @@ async function responderBot(convId: string, chatId: number | string) {
 
   // Y al final, las fotos de la(s) propiedad(es) que pidió ver.
   for (const f of fotosAEnviar) {
-    await enviarFoto(chatId, f.url, sinEmojis(f.caption));
+    await enviarFoto(chatId, f.url, f.caption ? sinEmojis(f.caption) : undefined);
+  }
+  // Guardarlas en el panel (card='fotos') para que el operador también las vea.
+  for (const urls of fotosPanel) {
+    await db.from("mensajes").insert({
+      inmobiliaria_id: INMO_ID, conversacion_id: convId,
+      who: "bot", agent: "bottelegram", card: "fotos", texto: JSON.stringify(urls), ts_label: horaLabel(),
+    });
+    await db.from("conversaciones").update({ ultimo_mensaje: "Te paso unas fotos", ultimo_label: horaLabel() }).eq("id", convId);
   }
 }
 

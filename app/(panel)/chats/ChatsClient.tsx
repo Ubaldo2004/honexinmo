@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import * as I from "@/components/icons";
 import { F, estadoPill, anclaData, anclaLabel, type AnclaProp } from "@/components/panel/ui";
 import type { Conversacion, MensajeHilo, Resultado } from "@/lib/data/types";
-import { enviarMensaje, crearChat, asignarVendedor, corregirUltimoMensaje, marcarLeido, reactivarBot } from "./actions";
+import { enviarMensaje, crearChat, asignarVendedor, asignarOperador, corregirUltimoMensaje, marcarLeido, reactivarBot } from "./actions";
 
 type AnalisisChat = {
   resumen?: string;
@@ -33,12 +33,14 @@ export default function ChatsClient({
   hilos,
   resultados,
   vendedores,
+  operadores,
   initialId,
 }: {
   conversaciones: Conversacion[];
   hilos: Record<string, MensajeHilo[]>;
   resultados: Resultado[];
   vendedores: string[];
+  operadores: string[];
   initialId?: string;
 }) {
   const initialConv = conversaciones.find((c) => c.id === initialId) ?? conversaciones[0];
@@ -73,7 +75,7 @@ export default function ChatsClient({
   let lastBotIdx = -1;
   for (let i = hilo.length - 1; i >= 0; i--) {
     const m = hilo[i];
-    if (m.who === "bot" && m.agent === "bottelegram" && m.card !== "resultados") { lastBotIdx = i; break; }
+    if (m.who === "bot" && m.agent === "bottelegram" && m.card !== "resultados" && m.card !== "fotos") { lastBotIdx = i; break; }
   }
   const correccion = conv ? correcciones[conv.id] : undefined;
   const lastBotTexto = lastBotIdx >= 0 ? (correccion ?? hilo[lastBotIdx].t) : "";
@@ -144,6 +146,20 @@ export default function ChatsClient({
     }
     setConv((c) => (c ? { ...c, asignado: vendedor } : c));
     setConvList((prev) => prev.map((c) => (c.id === cid ? { ...c, asignado: vendedor } : c)));
+  }
+
+  async function asignarOp(operador: string) {
+    if (!conv) return;
+    const cid = conv.id;
+    setAsignando(true);
+    const res = await asignarOperador(cid, operador);
+    setAsignando(false);
+    if (!res.ok) {
+      alert(res.error ?? "No se pudo asignar");
+      return;
+    }
+    setConv((c) => (c ? { ...c, asignado: operador, estado: "handoff", reason: `Tomado por ${operador}` } : c));
+    setConvList((prev) => prev.map((c) => (c.id === cid ? { ...c, asignado: operador, estado: "handoff" } : c)));
   }
 
   async function reactivar() {
@@ -275,6 +291,14 @@ export default function ChatsClient({
                       return label ? <div className={"mb-0.5 text-[10px] font-semibold " + (m.who === "in" ? "pl-1 text-zinc-400" : "pr-1 text-right text-brand-400/80")}>{label}</div> : null;
                     })()}
                     {m.system ? <div className="flex items-center gap-2 rounded-lg border border-line bg-ink-900 px-3 py-1.5 text-[11px] text-zinc-400"><I.Search className="h-3.5 w-3.5 text-brand-400 animate-live" /> {txt}</div> :
+                      m.card === "fotos" ? (
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {(m.fotos ?? []).map((u, k) => (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <a key={k} href={u} target="_blank" rel="noopener noreferrer" className="block"><img src={u} alt="foto de la propiedad" className="h-24 w-full rounded-lg object-cover" /></a>
+                          ))}
+                        </div>
+                      ) :
                       <div className={"whitespace-pre-wrap rounded-2xl px-3 py-2 text-[13px] leading-snug " + (m.who === "in" ? "rounded-bl-sm bg-ink-800" : "rounded-br-sm bg-brand-600/80 text-white")}>{txt}
                         {m.card === "resultados" && <div className="mt-2 space-y-1">{resultados.map((r) => <div key={r.t} className="flex items-center gap-2 rounded-lg border border-line bg-black/30 px-2 py-1.5"><span className="grid h-7 w-7 place-items-center rounded bg-brand-400/15 font-mono text-[10px] font-bold text-brand-300">{r.match}</span><div className="min-w-0 flex-1"><div className="truncate text-[11px] font-semibold">{r.t}</div><div className="text-[10px] text-zinc-500">{r.zona} · {r.src}</div></div><span className="font-mono text-[11px] text-brand-300">{r.precio}</span></div>)}</div>}
                       </div>}
@@ -450,6 +474,34 @@ export default function ChatsClient({
                         }
                       >
                         {ya ? `✓ Asignado a ${v}` : `Asignar a ${v}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 border-t border-line pt-4">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Pasar a un operador</div>
+              {operadores.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-line bg-ink-850 px-3 py-2 text-[11px] text-zinc-500">No hay operadores cargados.</div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {operadores.map((o) => {
+                    const ya = conv.asignado === o;
+                    return (
+                      <button
+                        key={o}
+                        onClick={() => asignarOp(o)}
+                        disabled={asignando || ya}
+                        className={
+                          "rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-60 " +
+                          (ya
+                            ? "border-ok/40 bg-ok/10 text-ok"
+                            : "border-sky-400/50 bg-sky-400/15 text-sky-200 hover:bg-sky-400/25")
+                        }
+                      >
+                        {ya ? `✓ Lo tiene ${o}` : `Pasar a ${o}`}
                       </button>
                     );
                   })}
