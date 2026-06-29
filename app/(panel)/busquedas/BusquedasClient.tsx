@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Card } from "@/components/panel/ui";
+import { Card, anclaData, anclaLabel, type AnclaProp } from "@/components/panel/ui";
+import { FichaModal } from "@/components/panel/FichaModal";
 
 export type Item = { criterios: string; t: string; resultados: number; repetida: boolean };
 export type Grupo = { lead: string; ancla: string; items: Item[] };
@@ -19,9 +20,12 @@ export default function BusquedasClient({ grupos }: { grupos: Grupo[] }) {
 
 function GrupoRow({ g }: { g: Grupo }) {
   const [open, setOpen] = useState(false);
+  const [ficha, setFicha] = useState<AnclaProp | null>(null);
   const distintas = new Set(g.items.map((it) => it.criterios.trim().toLowerCase())).size;
   const repetidas = g.items.filter((it) => it.repetida).length;
   const ultima = g.items[0]?.t ?? "";
+  const anclaProp = anclaData(g.ancla);
+  const anclaTxt = anclaLabel(g.ancla);
 
   return (
     <Card className="overflow-hidden p-0">
@@ -31,7 +35,16 @@ function GrupoRow({ g }: { g: Grupo }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="truncate text-sm font-semibold">{g.lead || "—"}</span>
-            {g.ancla !== "—" && <span className="truncate text-[11px] text-zinc-500">· {g.ancla}</span>}
+            {anclaTxt !== "—" && (anclaProp ? (
+              <span
+                onClick={(e) => { e.stopPropagation(); setFicha(anclaProp); }}
+                className="shrink-0 cursor-pointer rounded border border-brand-400/30 bg-brand-400/10 px-1.5 py-0.5 text-[11px] text-brand-200 transition hover:bg-brand-400/20"
+              >
+                {anclaTxt} ↗
+              </span>
+            ) : (
+              <span className="truncate text-[11px] text-zinc-500">· {anclaTxt}</span>
+            ))}
           </div>
           <div className="text-[11px] text-zinc-500">
             {g.items.length} búsqueda{g.items.length === 1 ? "" : "s"} · {distintas} distinta{distintas === 1 ? "" : "s"}
@@ -54,6 +67,7 @@ function GrupoRow({ g }: { g: Grupo }) {
           ))}
         </div>
       )}
+      {ficha && <FichaModal prop={ficha} onClose={() => setFicha(null)} />}
     </Card>
   );
 }

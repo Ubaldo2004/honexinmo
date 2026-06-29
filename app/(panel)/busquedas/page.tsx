@@ -1,4 +1,4 @@
-import { Page, anclaLabel } from "@/components/panel/ui";
+import { Page } from "@/components/panel/ui";
 import { getRepository } from "@/lib/data";
 import { BuscarClient } from "./BuscarClient";
 import BusquedasClient, { type Grupo } from "./BusquedasClient";
@@ -25,7 +25,7 @@ export default async function BusquedasPage() {
       visto.add(norm);
       return { criterios: b.criterios, t: b.t, resultados: b.resultados, repetida };
     });
-    return { lead: g.lead, ancla: anclaLabel(g.ancla), items };
+    return { lead: g.lead, ancla: g.ancla, items }; // ancla cruda → el client arma label + ficha
   });
 
   return (
