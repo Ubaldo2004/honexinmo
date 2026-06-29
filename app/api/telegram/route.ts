@@ -652,9 +652,11 @@ async function responderBot(convId: string, chatId: number | string) {
     const nums = /toda/i.test(raw)
       ? ultimasMostradas.map((_, i) => i + 1)
       : (raw.match(/\d+/g) ?? []).map((n: string) => parseInt(n, 10));
+    let anclaTentativa: Prop | null = null; // la que pide ver = propiedad de interés (ancla)
     for (const n of nums) {
       const p = ultimasMostradas[n - 1];
       if (!p) continue;
+      if (!anclaTentativa) anclaTentativa = p;
       // Varias fotos si el motor manda `fotos` (array); si no, la única `foto`.
       const urls = (Array.isArray(p.fotos) ? (p.fotos as unknown[]) : [])
         .filter((u): u is string => typeof u === "string" && !!u);
@@ -664,6 +666,11 @@ async function responderBot(convId: string, chatId: number | string) {
       const caption = fichaCaption(p, n, dolar);
       top.forEach((url, i) => fotosAEnviar.push({ url, caption: i === 0 ? caption : undefined }));
       fotosPanel.push(top);
+    }
+    // La propiedad que pide ver queda anclada al lead (si después elige otra, la sobreescribe).
+    // No depende de que el LLM emita [[INTERES]] → confiable.
+    if (anclaTentativa && conv.lead_id) {
+      await db.from("leads").update({ ancla: JSON.stringify(anclaTentativa) }).eq("id", conv.lead_id as string);
     }
   }
 
