@@ -120,7 +120,7 @@ ${mostradas}
 Manejo de estas propiedades:
 - Si el cliente elige o pregunta por una ("la 1", "la primera", "la de Funes"…), dale MÁS detalles de ESA usando SOLO los datos de arriba (no inventes nada que no esté), y preguntale si es la que quiere ir a ver.
 - Cuando el cliente muestre interés concreto en UNA propiedad de las mostradas ("la 1", "esta me gusta", "quiero ver la de Funes", etc.), respondé normal Y AGREGÁ al final de tu mensaje, en una línea aparte, esta etiqueta OCULTA que el cliente NO ve (la usa el sistema para registrar la propiedad de interés): [[INTERES: <NÚMERO de la opción elegida, ej: 1>]]. Tiene que ser el número tal cual aparece en la lista de arriba.
-- FOTOS: si el cliente pide ver fotos de una propiedad, o elige una para ir a verla, decile algo corto y natural ("dale, te paso unas fotos de esa") Y AGREGÁ al final, en una línea aparte, la etiqueta OCULTA [[FOTOS: <NÚMERO de la opción, ej: 1>]] — el cliente NO la ve; el sistema le manda las fotos solo. Antes de coordinar la visita, ofrecele ver fotos para que no vaya a ciegas.
+- FOTOS: cuando el cliente elige o pregunta por UNA opción ("la 1", "la primera", "mostrame fotos de la 2"): AGREGÁ la etiqueta OCULTA [[FOTOS: <NÚMERO de la opción>]] — el sistema le manda la foto con las características de esa propiedad en el pie. NO repitas vos las características (ya van en la foto). Tu texto tiene que ser SOLO una pregunta, en un mensaje aparte (poné [[NEXT]] antes): si quiere que coordinen la visita a esa, o si prefiere que le muestres OTRAS de las opciones. Ej de tu salida exacta: "[[FOTOS: 1]][[NEXT]]¿Querés que coordinemos una visita a esta, o preferís que te muestre otras opciones?"
 - Si quiere cambiar a otra de la lista, mostrale los detalles de esa otra (y actualizá la etiqueta [[INTERES: <número>]] a la nueva opción).
 - Si NINGUNA le gustó, o pide ver MÁS / OTRAS / NUEVAS, no repreguntes de más: emití directamente un [BUSCAR: ...] (podés ampliar o variar zona/precio) — el sistema le va a traer propiedades DISTINTAS a las ya mostradas.` : ""}`;
 }
@@ -373,6 +373,26 @@ function formatearResultados(query: string, props: Prop[], dolar: number): strin
   return [...fichas, cierre];
 }
 
+// Pie de foto con las características de la propiedad (va como caption de la foto que se manda).
+function fichaCaption(p: Prop, n: number, dolar: number): string {
+  let precio = "";
+  if (typeof p.precio === "number") {
+    const usd = Number(p.precio);
+    const ars = Math.round(usd * dolar);
+    precio = `\nUSD ${usd.toLocaleString("es-AR")} (aprox. $${ars.toLocaleString("es-AR")})`;
+  }
+  const det: string[] = [];
+  if (p.dormitorios) det.push(`${p.dormitorios} dorm`);
+  if (p.ambientes) det.push(`${p.ambientes} amb`);
+  if (p.banos) det.push(`${p.banos} baños`);
+  if (p.cocheras) det.push(`${p.cocheras} cochera${Number(p.cocheras) > 1 ? "s" : ""}`);
+  if (p.sup_cubierta) det.push(`${p.sup_cubierta} m² cub`);
+  if (p.sup_total) det.push(`${p.sup_total} m² tot`);
+  const detTxt = det.length ? `\n${det.join(" · ")}` : "";
+  const dir = p.direccion ? `\nEn ${p.direccion}` : "";
+  return sinEmojis(`Opción ${n} — ${p.tipo || "Propiedad"} en ${zonaCorta(p.ubicacion)}${precio}${detTxt}${dir}`);
+}
+
 // Devuelve el message_id de Telegram (para poder editar ese mensaje luego), o null.
 async function enviarTelegram(chatId: number | string, text: string): Promise<number | null> {
   try {
@@ -392,11 +412,18 @@ async function enviarTelegram(chatId: number | string, text: string): Promise<nu
 // Manda una foto (por URL) al chat. Si falla, seguimos sin romper.
 async function enviarFoto(chatId: number | string, fotoUrl: string, caption?: string) {
   try {
-    await fetch(`${API}/sendPhoto`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, photo: fotoUrl, caption: caption || undefined }),
-    });
+    // Bajamos la imagen y la SUBIMOS como archivo (multipart). Más robusto que pasarle la URL a
+    // Telegram, que a veces no puede bajarla del CDN de Tokko ("failed to get HTTP URL content").
+    const img = await fetch(fotoUrl);
+    if (!img.ok) { console.error("enviarFoto: no se pudo bajar la imagen:", img.status, fotoUrl); return; }
+    const blob = await img.blob();
+    const form = new FormData();
+    form.append("chat_id", String(chatId));
+    if (caption) form.append("caption", caption);
+    form.append("photo", blob, "foto.jpg");
+    const r = await fetch(`${API}/sendPhoto`, { method: "POST", body: form });
+    const j = await r.json().catch(() => ({}));
+    if (!j?.ok) console.error("enviarFoto: Telegram rechazó:", j?.description ?? r.status, fotoUrl);
   } catch (e) {
     console.error("enviarFoto:", (e as Error).message);
   }
@@ -621,7 +648,7 @@ async function responderBot(convId: string, chatId: number | string) {
       if (!urls.length && typeof p.foto === "string" && p.foto) urls.push(p.foto as string);
       const top = urls.slice(0, 6);
       if (!top.length) continue;
-      const caption = `Opción ${n} — ${(p.tipo as string) || "Propiedad"} en ${zonaCorta(p.ubicacion as string)}`;
+      const caption = fichaCaption(p, n, dolar);
       top.forEach((url, i) => fotosAEnviar.push({ url, caption: i === 0 ? caption : undefined }));
       fotosPanel.push(top);
     }
@@ -688,11 +715,7 @@ async function responderBot(convId: string, chatId: number | string) {
     return;
   }
 
-  // El bot puede mandar más de un mensaje corto seguido: los separa con [[NEXT]] (máx 3).
-  const partes = reply.split(/\s*\[\[NEXT\]\]\s*/i).map((s: string) => s.trim()).filter(Boolean);
-  await enviarMensajes(convId, chatId, partes.length ? partes.slice(0, 3) : [reply]);
-
-  // Y al final, las fotos de la(s) propiedad(es) que pidió ver.
+  // PRIMERO las fotos (con las características en el caption), si pidió ver una propiedad.
   for (const f of fotosAEnviar) {
     await enviarFoto(chatId, f.url, f.caption ? sinEmojis(f.caption) : undefined);
   }
@@ -704,6 +727,11 @@ async function responderBot(convId: string, chatId: number | string) {
     });
     await db.from("conversaciones").update({ ultimo_mensaje: "Te paso unas fotos", ultimo_label: horaLabel() }).eq("id", convId);
   }
+
+  // DESPUÉS el texto (ej: la pregunta de si quiere ir a verla o prefiere ver otras opciones).
+  // El bot puede mandar más de un mensaje corto seguido: los separa con [[NEXT]] (máx 3).
+  const partes = reply.split(/\s*\[\[NEXT\]\]\s*/i).map((s: string) => s.trim()).filter(Boolean);
+  await enviarMensajes(convId, chatId, partes.length ? partes.slice(0, 3) : [reply]);
 }
 
 type TgChat = { id: number; title?: string };
