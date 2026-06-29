@@ -307,7 +307,7 @@ export default function ChatsClient({
       </div>
 
       {/* conversación */}
-      <div className={(mobileChatAbierto ? "flex " : "hidden ") + "min-h-0 flex-col bg-ink-950 md:flex"}>
+      <div className={(mobileChatAbierto ? "flex " : "hidden ") + "min-h-0 min-w-0 flex-col bg-ink-950 md:flex"}>
         {!conv ? (
           <div className="grid flex-1 place-items-center p-6 text-center text-sm text-zinc-500">
             <div>
@@ -327,7 +327,7 @@ export default function ChatsClient({
               <span className={"pill " + (estadoPill[conv.estado]?.c || "")}>{estadoPill[conv.estado]?.t}</span>
             </div>
             {conv.estado !== "bot" && conv.reason && <div className={"flex items-center gap-2 border-b px-4 py-2 text-xs " + (conv.estado === "operacion" ? "border-line bg-white/3 text-zinc-400" : conv.estado === "visita" ? "border-warn/30 bg-warn/10 text-warn" : conv.estado === "seguimiento" ? "border-sky-400/30 bg-sky-400/10 text-sky-300" : "border-bad/30 bg-bad/10 text-bad")}><I.Alert className="h-4 w-4" /> {conv.reason}</div>}
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 space-y-2 overflow-x-hidden overflow-y-auto p-4">
               {hilo.length === 0 && (
                 <div className="grid h-full place-items-center text-center text-xs text-zinc-600">
                   Conversación vacía. Escribí abajo y tu mensaje va a aparecer acá (y se guarda).
@@ -351,7 +351,7 @@ export default function ChatsClient({
                           ))}
                         </div>
                       ) :
-                      <div className={"whitespace-pre-wrap rounded-2xl px-3 py-2 text-[13px] leading-snug " + (m.who === "in" ? "rounded-bl-sm bg-ink-800" : "rounded-br-sm bg-brand-600/80 text-white")}>{txt}
+                      <div className={"whitespace-pre-wrap break-words [overflow-wrap:anywhere] rounded-2xl px-3 py-2 text-[13px] leading-snug " + (m.who === "in" ? "rounded-bl-sm bg-ink-800" : "rounded-br-sm bg-brand-600/80 text-white")}>{txt}
                         {m.card === "resultados" && <div className="mt-2 space-y-1">{resultados.map((r) => <div key={r.t} className="flex items-center gap-2 rounded-lg border border-line bg-black/30 px-2 py-1.5"><span className="grid h-7 w-7 place-items-center rounded bg-brand-400/15 font-mono text-[10px] font-bold text-brand-300">{r.match}</span><div className="min-w-0 flex-1"><div className="truncate text-[11px] font-semibold">{r.t}</div><div className="text-[10px] text-zinc-500">{r.zona} · {r.src}</div></div><span className="font-mono text-[11px] text-brand-300">{r.precio}</span></div>)}</div>}
                       </div>}
                     <div className={"mt-0.5 text-[9px] text-zinc-600 " + (m.who === "in" ? "" : "text-right")}>{m.ts}</div>
