@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Anthropic from "@anthropic-ai/sdk";
 import { reportarError } from "@/lib/alert";
-import { sinEmojis, parseDispo } from "@/lib/bot/text";
+import { sinEmojis, parseDispo, sinAcento } from "@/lib/bot/text";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -64,6 +64,27 @@ function horaLabel() {
   return new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
 }
 
+// "martes 14:00" → ISO del PRÓXIMO martes a las 14:00 (hora Argentina, UTC-3 sin DST).
+// Sirve para los recordatorios de la visita, que van por DÍA (1 día antes / el mismo día a las
+// 8hs), así que la hora exacta es opcional: si el cliente dijo algo vago ("martes a la tarde")
+// igual guardamos el día (anclado al mediodía). Devuelve null sólo si no hay un día reconocible.
+const DIAS_NUM: Record<string, number> = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6 };
+function proximaFechaISO(s: string): string | null {
+  const c = sinAcento(s.toLowerCase());
+  const diaKey = Object.keys(DIAS_NUM).find((d) => c.includes(d));
+  if (!diaKey) return null;
+  const hm = c.match(/(\d{1,2})(?:[:.h](\d{2}))?/);
+  const hh = hm ? parseInt(hm[1], 10) : 12; // sin hora → mediodía (los recordatorios van por día)
+  const mm = hm && hm[2] ? parseInt(hm[2], 10) : 0;
+  if (hh > 23 || mm > 59) return null;
+  // Corremos el reloj −3h: así getUTC* nos da la "hora de pared" argentina.
+  const arNow = new Date(Date.now() - 3 * 3600 * 1000);
+  const add = (DIAS_NUM[diaKey] - arNow.getUTCDay() + 7) % 7;
+  const cand = new Date(Date.UTC(arNow.getUTCFullYear(), arNow.getUTCMonth(), arNow.getUTCDate() + add, hh, mm));
+  if (cand.getTime() <= arNow.getTime()) cand.setUTCDate(cand.getUTCDate() + 7); // hoy pero ya pasó → la semana que viene
+  return new Date(cand.getTime() + 3 * 3600 * 1000).toISOString(); // pared AR → instante UTC real
+}
+
 // Tipo de cambio USD→ARS (dólar oficial, venta), cacheado por instancia.
 let DOLAR_CACHE: { value: number; at: number } | null = null;
 async function getDolar(): Promise<number> {
@@ -114,6 +135,7 @@ Coordinar la visita (cuando el comprador muestra INTERÉS REAL en una propiedad:
 - Cuando te dé su disponibilidad, respondé ÚNICAMENTE con estas DOS líneas (el cliente NO las ve; las usa el sistema para registrar cuándo puede y asignarle solo un vendedor libre para ese horario):
 [[DISPO: <días y franjas normalizados, ej: martes tarde, jueves mañana>]]
 [ASIGNAR: ]
+- Si el cliente te da un DÍA Y HORA CONCRETOS (ej: "el martes a las 14", "el jueves 16hs"), agregá TAMBIÉN esta línea oculta con el día y la hora exacta en formato 24h: [[FECHA: martes 14:00]]. Si sólo dio una franja vaga ("martes a la tarde"), NO la pongas.
 - El sistema elige automáticamente un vendedor disponible para ese horario; vos no tenés que preguntar por nombres. SOLO si el comprador pide un vendedor puntual por su nombre, poné ese nombre en el ASIGNAR (ej: [ASIGNAR: Ubaldo]); si no, dejalo VACÍO.
 ${mostradas ? `
 PROPIEDADES QUE YA LE MOSTRASTE (numeradas tal cual las ve el cliente):
@@ -681,6 +703,14 @@ async function responderBot(convId: string, chatId: number | string) {
     }
   }
 
+  // Fecha/hora exacta de la visita (si el cliente la dio concreta) → habilita los recordatorios.
+  const mfecha = reply.match(/\[\[FECHA:\s*([\s\S]*?)\]\]/i);
+  let fechaVisitaISO: string | null = null;
+  if (mfecha) {
+    reply = reply.replace(/\[\[FECHA:[\s\S]*?\]\]/i, "").trim();
+    fechaVisitaISO = proximaFechaISO(mfecha[1].trim());
+  }
+
   const ma = reply.match(/\[ASIGNAR:\s*([\s\S]*?)\]/i);
   if (ma) {
     let nombre = ma[1].trim();
@@ -705,6 +735,9 @@ async function responderBot(convId: string, chatId: number | string) {
         inmobiliaria_id: INMO_ID, lead_id: conv.lead_id as string, lead_label: (ld?.nombre as string) ?? null,
         prop: anclaLabelTexto(ld?.ancla as string | null), agente: nombre,
         fecha: slotLabel ?? dispoCliente ?? "a coordinar",
+        // timestamp real para los recordatorios: la fecha exacta si la dio, si no la derivamos
+        // del día de su disponibilidad (martes/jueves/…). null sólo si no hay ningún día claro.
+        fecha_visita: fechaVisitaISO ?? (dispoCliente ? proximaFechaISO(dispoCliente) : null),
       };
       const { data: prev } = await db.from("visitas").select("id").eq("lead_id", conv.lead_id as string).limit(1);
       const ev = prev && prev.length
