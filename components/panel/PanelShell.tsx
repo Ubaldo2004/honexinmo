@@ -51,7 +51,9 @@ export default function PanelShell({
   // Chats queda afuera: tiene su propio polling y estado local que no conviene pisar.
   useEffect(() => {
     if (pathname.startsWith("/chats")) return;
-    const id = setInterval(() => router.refresh(), 10000);
+    const id = setInterval(() => {
+      if (!document.hidden) router.refresh(); // pausa si la pestaña está en segundo plano
+    }, 10000);
     return () => clearInterval(id);
   }, [pathname, router]);
 

@@ -91,6 +91,7 @@ export default function ChatsClient({
     if (!convId) return;
     let cancel = false;
     const tick = async () => {
+      if (typeof document !== "undefined" && document.hidden) return; // pausa en segundo plano
       try {
         const h = await getHilo(convId);
         if (!cancel) setLive((prev) => ({ ...prev, [convId]: h }));
@@ -114,6 +115,7 @@ export default function ChatsClient({
   useEffect(() => {
     let cancel = false;
     const tick = async () => {
+      if (typeof document !== "undefined" && document.hidden) return; // pausa en segundo plano
       try {
         const fresh = await listarConversaciones();
         if (cancel) return;

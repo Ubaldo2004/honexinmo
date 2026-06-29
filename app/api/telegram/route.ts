@@ -36,10 +36,12 @@ let INMO_ID: string | null = null;
 let INMO_NOMBRE = "la inmobiliaria";
 let INMO_VENDEDORES: string[] = []; // telegram_id de los vendedores del tenant, para rotar (n8n resuelve el UUID)
 let VENDEDOR_IDX = 0;
+let INMO_AT = 0;
+const INMO_TTL = 5 * 60 * 1000; // refresca nombre + vendedores cada 5 min (no esperar redeploy)
 async function getInmo() {
-  if (INMO_ID) return INMO_ID;
+  if (INMO_ID && Date.now() - INMO_AT < INMO_TTL) return INMO_ID;
   const { data } = await db.from("inmobiliarias").select("id, nombre").eq("slug", SLUG).maybeSingle();
-  if (data) { INMO_ID = data.id as string; INMO_NOMBRE = data.nombre as string; }
+  if (data) { INMO_ID = data.id as string; INMO_NOMBRE = data.nombre as string; INMO_AT = Date.now(); }
   if (INMO_ID) {
     const { data: us } = await db.from("usuarios").select("tokko_vendedor_id")
       .eq("inmobiliaria_id", INMO_ID).not("tokko_vendedor_id", "is", null);
@@ -381,7 +383,8 @@ async function enviarTelegram(chatId: number | string, text: string): Promise<nu
     });
     const j = await r.json().catch(() => ({}));
     return (j?.result?.message_id as number) ?? null;
-  } catch {
+  } catch (e) {
+    console.error("enviarTelegram:", (e as Error).message);
     return null;
   }
 }
@@ -394,7 +397,9 @@ async function enviarFoto(chatId: number | string, fotoUrl: string, caption?: st
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, photo: fotoUrl, caption: caption || undefined }),
     });
-  } catch { /* si falla, seguimos */ }
+  } catch (e) {
+    console.error("enviarFoto:", (e as Error).message);
+  }
 }
 
 // Saca cualquier emoji del texto. Garantía dura: el bot NUNCA manda emojis,
@@ -485,15 +490,60 @@ async function primerVendedor(): Promise<string | null> {
   return (data?.nombre as string) ?? null;
 }
 
-async function registrarBusqueda(leadId: string | null, criterios: string, resultados: number) {
-  if (!leadId) return;
+async function registrarBusqueda(leadId: string | null, criterios: string, resultados: number): Promise<string | null> {
+  if (!leadId) return null;
   const { data: lead } = await db.from("leads").select("nombre, etapa").eq("id", leadId).maybeSingle();
-  await db.from("busquedas").insert({
+  const { data: bq, error } = await db.from("busquedas").insert({
     inmobiliaria_id: INMO_ID, lead_id: leadId, lead_label: lead?.nombre ?? null,
     criterios, fuentes: "Red Tokko", resultados, hora_label: horaLabel(),
-  });
+  }).select("id").single();
+  if (error) console.error("registrarBusqueda:", error.message);
   if (lead && lead.etapa === "Calificación") {
     await db.from("leads").update({ etapa: "Búsqueda" }).eq("id", leadId);
+  }
+  return (bq?.id as string) ?? null;
+}
+
+// Trazabilidad (regla del spec): por cada propiedad mostrada → upsert snapshot en `propiedades`
+// + insert en `matches` (INMUTABLE, con el precio mostrado). Es la base del reparto de comisiones.
+async function registrarMatches(leadId: string | null, busquedaId: string | null, props: Prop[]) {
+  if (!INMO_ID) return;
+  for (let i = 0; i < props.length; i++) {
+    const p = props[i];
+    const tokkoId = p.id != null ? String(p.id) : null;
+    if (!tokkoId) continue;
+    const precio = typeof p.precio === "number" ? p.precio : null;
+    const moneda = (typeof p.moneda === "string" && p.moneda) ? p.moneda : "USD";
+    const fotos = Array.isArray(p.fotos)
+      ? (p.fotos as unknown[]).filter((u): u is string => typeof u === "string")
+      : (typeof p.foto === "string" && p.foto ? [p.foto as string] : []);
+    const m2 = typeof p.sup_total === "number" ? Math.round(p.sup_total as number)
+      : (typeof p.sup_cubierta === "number" ? Math.round(p.sup_cubierta as number) : null);
+
+    const { error: ep } = await db.from("propiedades").upsert({
+      inmobiliaria_id: INMO_ID, tokko_property_id: tokkoId,
+      tipo: (p.tipo as string) ?? null,
+      titulo: (p.direccion as string) ?? null,
+      precio, moneda,
+      zona: zonaCorta(p.ubicacion as string),
+      direccion_aprox: (p.direccion as string) ?? null,
+      m2,
+      ambientes: typeof p.ambientes === "number" ? (p.ambientes as number) : null,
+      dormitorios: typeof p.dormitorios === "number" ? (p.dormitorios as number) : null,
+      amenities: (p.amenities && typeof p.amenities === "object") ? p.amenities : null,
+      fotos: fotos.length ? fotos : null,
+      tokko_url: (p.url as string) ?? null,
+    }, { onConflict: "inmobiliaria_id,tokko_property_id" });
+    if (ep) console.error("upsert propiedad:", ep.message);
+
+    const { error: em } = await db.from("matches").insert({
+      inmobiliaria_id: INMO_ID, lead_id: leadId, busqueda_id: busquedaId,
+      tokko_property_id: tokkoId,
+      match_score: typeof p.match === "number" ? (p.match as number) : null,
+      posicion_ranking: i + 1,
+      precio_mostrado: precio, moneda,
+    });
+    if (em) console.error("insert match:", em.message);
   }
 }
 
@@ -610,13 +660,14 @@ async function responderBot(convId: string, chatId: number | string) {
       // Priorizar las que NO se mostraron antes → traer "nuevas".
       const nuevas = encontradas.filter((p) => !shownKeys.has(propKey(p)));
       const pool = nuevas.length ? nuevas : encontradas;
-      // % de coincidencia con lo pedido + ordenar mejor primero (como el panel).
+      // Respetamos el orden del motor (ya viene rankeado). Calculamos `match` solo como dato
+      // (para matches.match_score), sin re-ordenar → consistente con el panel.
       const crit = criteriosDeQuery(query);
-      const aMostrar = pool
-        .map((p) => ({ ...p, match: scoreMatch(crit, p) }))
-        .sort((a, b) => (b.match ?? 0) - (a.match ?? 0))
-        .slice(0, 5);
-      await registrarBusqueda((conv.lead_id as string) ?? null, query, aMostrar.length);
+      const aMostrar = pool.slice(0, 5).map((p) => ({ ...p, match: scoreMatch(crit, p) }));
+      const leadId = (conv.lead_id as string) ?? null;
+      const busquedaId = await registrarBusqueda(leadId, query, aMostrar.length);
+      // Trazabilidad para comisiones: snapshot en `propiedades` + `matches` inmutable.
+      await registrarMatches(leadId, busquedaId, aMostrar);
       // Guardar las mostradas como estado interno (no va a Telegram ni al panel).
       if (aMostrar.length) {
         await db.from("mensajes").insert({
