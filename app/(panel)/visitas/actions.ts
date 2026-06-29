@@ -78,6 +78,16 @@ export async function guardarTranscripto(visitaId: string, texto: string) {
   } catch (e) { return { ok: false as const, error: (e as Error).message }; }
 }
 
+// Fija/corrige la fecha y hora real de la visita (ISO o null). Es la que usan los recordatorios.
+export async function actualizarFechaVisita(visitaId: string, iso: string | null) {
+  try {
+    const { db } = await ctx();
+    const { error } = await db.from("visitas").update({ fecha_visita: iso }).eq("id", visitaId);
+    if (error) return { ok: false as const, error: error.message };
+    return { ok: true as const };
+  } catch (e) { return { ok: false as const, error: (e as Error).message }; }
+}
+
 export async function eliminarVisita(visitaId: string, audioPath: string | null) {
   try {
     const { db } = await ctx();

@@ -92,6 +92,7 @@ export interface Lead {
   origen: string;
   asignado: string;
   act: string;
+  basura?: boolean; // marcado por el cron como candidato a descartar (no avanzó)
 }
 
 export interface Busqueda {
@@ -169,6 +170,7 @@ export interface VisitaItem {
   transcripto: string | null;
   duracionSeg: number | null;
   analisis: AnalisisVisita | null;
+  fechaVisita?: string | null; // fecha/hora real de la visita (ISO) — editable, para los recordatorios
 }
 
 /**

@@ -27,6 +27,10 @@ export default function LeadsClient({ leads: initial }: { leads: Lead[] }) {
   const [editing, setEditing] = useState<Lead | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [ficha, setFicha] = useState<AnclaProp | null>(null);
+  const [filtro, setFiltro] = useState<"todos" | "basura">("todos");
+
+  const basuraCount = leads.filter((l) => l.basura).length;
+  const visibleLeads = filtro === "basura" ? leads.filter((l) => l.basura) : leads;
 
   async function setEtapa(l: Lead, etapa: string) {
     if (!l.id) return;
@@ -60,17 +64,36 @@ export default function LeadsClient({ leads: initial }: { leads: Lead[] }) {
 
   return (
     <>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-sm text-zinc-400">
-          <span className="font-mono text-brand-300">{leads.length}</span> lead{leads.length === 1 ? "" : "s"}
+          <span className="font-mono text-brand-300">{visibleLeads.length}</span> lead{visibleLeads.length === 1 ? "" : "s"}
+          {filtro === "basura" && <span className="text-zinc-600"> · basura</span>}
+        </div>
+        <div className="flex items-center gap-1 rounded-lg border border-line bg-ink-900 p-0.5 text-xs">
+          <button
+            onClick={() => setFiltro("todos")}
+            className={"rounded-md px-2.5 py-1 transition " + (filtro === "todos" ? "bg-white/10 text-zinc-100" : "text-zinc-400 hover:text-zinc-200")}
+          >
+            Todos
+          </button>
+          <button
+            onClick={() => setFiltro("basura")}
+            className={"rounded-md px-2.5 py-1 transition " + (filtro === "basura" ? "bg-bad/20 text-bad" : "text-zinc-400 hover:text-zinc-200")}
+          >
+            Basura{basuraCount > 0 ? ` (${basuraCount})` : ""}
+          </button>
         </div>
       </div>
 
       <Card className="overflow-x-auto p-0">
-        {leads.length === 0 ? (
+        {visibleLeads.length === 0 ? (
           <div className="px-4 py-12 text-center text-sm text-zinc-500">
-            No hay leads todavía.<br />
-            <span className="text-xs text-zinc-600">Entran solos cuando alguien le escribe al bot de Telegram.</span>
+            {filtro === "basura" ? "No hay leads en basura." : "No hay leads todavía."}<br />
+            <span className="text-xs text-zinc-600">
+              {filtro === "basura"
+                ? "Acá caen los leads que no avanzaron (sin respuesta 7 días, baja probabilidad)."
+                : "Entran solos cuando alguien le escribe al bot de Telegram."}
+            </span>
           </div>
         ) : (
           <table className="w-full min-w-[820px] text-sm">
@@ -86,10 +109,13 @@ export default function LeadsClient({ leads: initial }: { leads: Lead[] }) {
               </tr>
             </thead>
             <tbody>
-              {leads.map((l) => (
-                <tr key={l.id ?? l.tel} className="hoverable border-b border-line/60">
+              {visibleLeads.map((l) => (
+                <tr key={l.id ?? l.tel} className={"hoverable border-b border-line/60" + (l.basura ? " bg-bad/[0.04]" : "")}>
                   <td className="px-4 py-3">
-                    <div className="font-semibold">{l.nombre}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{l.nombre}</span>
+                      {l.basura && <span className="rounded-full bg-bad/15 px-1.5 py-0.5 text-[10px] font-medium text-bad">basura</span>}
+                    </div>
                     <div className="font-mono text-[11px] text-zinc-500">{l.tel || "—"}</div>
                   </td>
                   <td className="px-4 py-3">

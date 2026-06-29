@@ -6,6 +6,7 @@ import { Card } from "@/components/panel/ui";
 import type { VisitaItem } from "@/lib/data/types";
 import {
   crearVisita, urlSubida, confirmarAudio, urlReproduccion, guardarTranscripto, eliminarVisita,
+  actualizarFechaVisita,
 } from "./actions";
 
 type LeadOpt = { id: string; nombre: string };
@@ -14,6 +15,20 @@ function dur(s: number | null): string {
   if (!s) return "";
   const m = Math.floor(s / 60), sec = Math.round(s % 60);
   return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+// ISO (UTC) → valor para <input type="datetime-local"> en hora local del navegador (AR para el equipo).
+function isoAInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function inputAIso(val: string): string | null {
+  if (!val) return null;
+  const d = new Date(val); // el navegador lo interpreta en hora local
+  return isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 export default function VisitasClient({ visitas: initial, leads }: { visitas: VisitaItem[]; leads: LeadOpt[] }) {
@@ -168,6 +183,17 @@ function VisitaRow({ v, onDelete }: { v: VisitaItem; onDelete: (id: string) => v
   const [analisis, setAnalisis] = useState(v.analisis);
   const [analizando, setAnalizando] = useState(false);
   const [open, setOpen] = useState(false);
+  const [fechaInput, setFechaInput] = useState(isoAInput(v.fechaVisita));
+  const [fechaGuardada, setFechaGuardada] = useState(isoAInput(v.fechaVisita));
+  const [guardandoFecha, setGuardandoFecha] = useState(false);
+
+  async function guardarFecha() {
+    setGuardandoFecha(true);
+    const r = await actualizarFechaVisita(v.id, inputAIso(fechaInput));
+    setGuardandoFecha(false);
+    if (r.ok) setFechaGuardada(fechaInput);
+    else alert(r.error ?? "No se pudo guardar la fecha");
+  }
 
   async function play() {
     if (audioUrl || !v.audioPath) return;
@@ -222,6 +248,26 @@ function VisitaRow({ v, onDelete }: { v: VisitaItem; onDelete: (id: string) => v
           </div>
         </div>
         <button onClick={borrar} className="text-[11px] text-bad/80 hover:text-bad">eliminar</button>
+      </div>
+
+      {/* Fecha/hora real de la visita → de acá salen los recordatorios (1 día antes y el mismo día). */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-ink-900/60 px-3 py-2">
+        <span className="text-[11px] text-zinc-500">📅 Fecha de la visita</span>
+        <input
+          type="datetime-local"
+          value={fechaInput}
+          onChange={(e) => setFechaInput(e.target.value)}
+          className="rounded-md border border-line bg-ink-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-brand-400/60"
+        />
+        {fechaInput !== fechaGuardada && (
+          <button onClick={guardarFecha} disabled={guardandoFecha}
+            className="rounded-md bg-brand-400 px-2.5 py-1 text-xs font-semibold text-ink-950 transition hover:bg-brand-300 disabled:opacity-50">
+            {guardandoFecha ? "…" : "Guardar"}
+          </button>
+        )}
+        {!fechaGuardada && fechaInput === fechaGuardada && (
+          <span className="text-[11px] text-zinc-600">— sin fecha, no se mandan recordatorios</span>
+        )}
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">

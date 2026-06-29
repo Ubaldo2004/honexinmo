@@ -248,12 +248,17 @@ export class SupabaseRepository implements HonexRepository {
   }
 
   async getLeads(): Promise<Lead[]> {
-    const { data, error } = await this.db
-      .from("leads")
-      .select("id, nombre, telefono, etapa, score, ancla, origen, asignado_label, ultima_actividad")
-      .order("creado_at", { ascending: false });
+    const base = "id, nombre, telefono, etapa, score, ancla, origen, asignado_label, ultima_actividad";
+    const pedir = async (cols: string) => {
+      const r = await this.db.from("leads").select(cols).order("creado_at", { ascending: false });
+      return { rows: (r.data ?? null) as Record<string, unknown>[] | null, error: r.error };
+    };
+    // Intentamos con `basura`; si la columna no existe todavía (migración 0012 sin correr),
+    // reintentamos sin ella para no romper la página de Leads.
+    let { rows, error } = await pedir(`${base}, basura`);
+    if (error) ({ rows, error } = await pedir(base));
     if (error) throw error;
-    return (data ?? []).map((r): Lead => ({
+    return (rows ?? []).map((r): Lead => ({
       id: r.id as string,
       nombre: r.nombre as string,
       tel: (r.telefono as string) ?? "",
@@ -263,6 +268,7 @@ export class SupabaseRepository implements HonexRepository {
       origen: (r.origen as string) ?? "",
       asignado: (r.asignado_label as string) ?? "bot",
       act: (r.ultima_actividad as string) ?? "",
+      basura: (r.basura as boolean) ?? false,
     }));
   }
 
@@ -347,12 +353,16 @@ export class SupabaseRepository implements HonexRepository {
   }
 
   async getVisitas(): Promise<VisitaItem[]> {
-    const { data, error } = await this.db
-      .from("visitas")
-      .select("id, lead_id, lead_label, prop, agente, fecha, audio_path, transcripto_texto, duracion_seg, analisis, leads(nombre)")
-      .order("creada_at", { ascending: false });
+    const base = "id, lead_id, lead_label, prop, agente, fecha, audio_path, transcripto_texto, duracion_seg, analisis, leads(nombre)";
+    const pedir = async (cols: string) => {
+      const r = await this.db.from("visitas").select(cols).order("creada_at", { ascending: false });
+      return { rows: (r.data ?? null) as Record<string, unknown>[] | null, error: r.error };
+    };
+    // `fecha_visita` viene de la migración 0012; si no está, reintentamos sin ella.
+    let { rows, error } = await pedir(`${base}, fecha_visita`);
+    if (error) ({ rows, error } = await pedir(base));
     if (error) throw error;
-    return (data ?? []).map((r): VisitaItem => {
+    return (rows ?? []).map((r): VisitaItem => {
       const l = (Array.isArray(r.leads) ? r.leads[0] : r.leads) as { nombre?: string } | null;
       return {
         id: r.id as string,
@@ -365,6 +375,7 @@ export class SupabaseRepository implements HonexRepository {
         transcripto: (r.transcripto_texto as string) ?? null,
         duracionSeg: (r.duracion_seg as number) ?? null,
         analisis: (r.analisis as VisitaItem["analisis"]) ?? null,
+        fechaVisita: (r.fecha_visita as string) ?? null,
       };
     });
   }

@@ -137,6 +137,11 @@ Coordinar la visita (cuando el comprador muestra INTERÉS REAL en una propiedad:
 [ASIGNAR: ]
 - Si el cliente te da un DÍA Y HORA CONCRETOS (ej: "el martes a las 14", "el jueves 16hs"), agregá TAMBIÉN esta línea oculta con el día y la hora exacta en formato 24h: [[FECHA: martes 14:00]]. Si sólo dio una franja vaga ("martes a la tarde"), NO la pongas.
 - El sistema elige automáticamente un vendedor disponible para ese horario; vos no tenés que preguntar por nombres. SOLO si el comprador pide un vendedor puntual por su nombre, poné ese nombre en el ASIGNAR (ej: [ASIGNAR: Ubaldo]); si no, dejalo VACÍO.
+
+SI LA CHARLA SE COMPLICA (el cliente se enoja, no entiende, repite que no le sirve lo que le mostrás, o pregunta "¿sos un bot?"):
+- PRIMERO intentá REMONTARLA vos: si hizo falta pedí disculpas, bajá un cambio, simplificá, y re-enganchá con UNA pregunta clara y útil que lleve la charla de vuelta a ayudarlo (qué busca, ajustar la búsqueda, coordinar). Nada de ponerte a la defensiva ni repetir lo mismo de forma robótica.
+- Si pregunta si sos un bot, no lo niegues de forma rara: respondé con naturalidad que lo atendemos desde la inmobiliaria y seguí dándole una mano.
+- SOLO si después de intentar remontarla el cliente sigue trabado o molesto, o pide hablar con una persona, agregá al final la línea OCULTA [[HANDOFF]] (el cliente NO la ve; el sistema le pasa la charla a un asesor humano) y en tu texto avisale cálidamente que en un rato lo contacta alguien del equipo.
 ${mostradas ? `
 PROPIEDADES QUE YA LE MOSTRASTE (numeradas tal cual las ve el cliente):
 ${mostradas}
@@ -711,14 +716,22 @@ async function responderBot(convId: string, chatId: number | string) {
     fechaVisitaISO = proximaFechaISO(mfecha[1].trim());
   }
 
+  // El bot pide pasar la charla a un humano (ya intentó remontarla y no se pudo). Dejamos la
+  // conversación en 'handoff': el bot queda en silencio (responderBot corta si estado != 'bot')
+  // y el operador la toma desde el panel. El texto del bot (avisando) igual se manda.
+  if (/\[\[HANDOFF\]\]/i.test(reply)) {
+    reply = reply.replace(/\[\[HANDOFF\]\]/gi, "").trim();
+    await db.from("conversaciones").update({ estado: "handoff", reason: "El bot derivó: la charla se complicó" }).eq("id", convId);
+  }
+
   const ma = reply.match(/\[ASIGNAR:\s*([\s\S]*?)\]/i);
   if (ma) {
     let nombre = ma[1].trim();
     const auto = !nombre || /^(no|vos|uno|cualquiera|el que sea|cualq|alguno|el que pued|da igual)/i.test(nombre);
+    // Disponibilidad del cliente: la recién capturada (este turno) o la ya guardada.
+    const dispoCliente = (md ? md[1].trim() : null) ?? leadRow?.disponibilidad ?? null;
     let slotLabel: string | null = null;
     if (auto) {
-      // Disponibilidad del cliente: la recién capturada (este turno) o la ya guardada.
-      const dispoCliente = (md ? md[1].trim() : null) ?? leadRow?.disponibilidad ?? null;
       const m = dispoCliente ? await matchVendedor(parseDispo(dispoCliente)) : null;
       if (m) { nombre = m.nombre; slotLabel = m.slot; }
       else nombre = (await primerVendedor()) ?? "el equipo";
@@ -730,7 +743,6 @@ async function responderBot(convId: string, chatId: number | string) {
     // se emite más de una vez / se re-coordina).
     if (conv.lead_id) {
       const { data: ld } = await db.from("leads").select("nombre, ancla").eq("id", conv.lead_id as string).maybeSingle();
-      const dispoCliente = (md ? md[1].trim() : null) ?? leadRow?.disponibilidad ?? null;
       const visitaData = {
         inmobiliaria_id: INMO_ID, lead_id: conv.lead_id as string, lead_label: (ld?.nombre as string) ?? null,
         prop: anclaLabelTexto(ld?.ancla as string | null), agente: nombre,
@@ -745,9 +757,13 @@ async function responderBot(convId: string, chatId: number | string) {
         : (await db.from("visitas").insert(visitaData)).error;
       if (ev) console.error("guardar visita:", ev.message);
     }
-    reply = slotLabel
-      ? `¡Listo! Lo coordinamos con ${nombre}, que tiene libre el ${slotLabel}. En un rato se contacta con vos para cerrar la visita. Cualquier cosa, acá estamos.`
-      : `¡Listo! Lo coordinamos con ${nombre}. En un rato se contacta con vos para arreglar el día y horario de la visita. Cualquier cosa, acá estamos.`;
+    // "Cuándo" acordado, lo más concreto que tengamos: el slot del vendedor, la hora exacta que dio
+    // el cliente, o su franja. Si YA hay un cuándo, NO decimos "arreglar el día y horario" (ya está):
+    // lo confirmamos. Sólo si no hay nada concreto queda por coordinar.
+    const cuando = slotLabel ?? (mfecha ? mfecha[1].trim() : null) ?? dispoCliente ?? null;
+    reply = cuando
+      ? `¡Listo! Queda agendada con ${nombre} para el ${cuando}. En un rato se contacta con vos para confirmarte los detalles. Cualquier cosa, acá estamos.`
+      : `¡Listo! Lo coordinamos con ${nombre}. En un rato se contacta con vos para coordinar el día y horario de la visita. Cualquier cosa, acá estamos.`;
   } else {
     const m = reply.match(/\[BUSCAR:\s*([\s\S]+?)\]/i);
     if (m) {

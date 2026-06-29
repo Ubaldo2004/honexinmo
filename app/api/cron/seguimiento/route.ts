@@ -11,6 +11,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { enviarTelegramTexto } from "@/lib/telegram";
+import { completarTexto } from "@/lib/ia";
+import { sinEmojis } from "@/lib/bot/text";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -42,12 +44,17 @@ function autorizado(req: Request): boolean {
   return key === CRON_SECRET || req.headers.get("authorization") === `Bearer ${CRON_SECRET}`;
 }
 
-type LeadMini = { canal_user_id: string | null; canal: string | null; inmobiliaria_id: string | null };
+type LeadMini = { canal_user_id: string | null; canal: string | null; inmobiliaria_id: string | null; nombre?: string | null };
 type VisitaRow = { id: string; prop: string | null; leads: LeadMini | LeadMini[] | null };
+type SeguiRow = { id: string; prop: string | null; lead_id: string | null; analisis: unknown; leads: LeadMini | LeadMini[] | null };
 
-function leadDe(row: VisitaRow): LeadMini | null {
+function leadDe(row: { leads: LeadMini | LeadMini[] | null }): LeadMini | null {
   const l = row.leads;
   return Array.isArray(l) ? (l[0] ?? null) : l;
+}
+
+function tsLabel(): string {
+  return new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
 }
 
 async function inmoNombres(): Promise<Record<string, string>> {
@@ -86,6 +93,67 @@ async function recordar(
       await db.from("visitas").update({ [flag]: new Date().toISOString() }).eq("id", row.id);
       n++;
     }
+  }
+  return n;
+}
+
+// Arma el mensaje de seguimiento con lo que salió del análisis (IA con respaldo de texto fijo).
+async function armarSeguimiento(a: Record<string, unknown>, inmo: string, nombre: string, prop: string | null): Promise<string> {
+  const gusto = String(a.le_gusto ?? "");
+  const positivos = Array.isArray(a.positivos) ? (a.positivos as string[]).join("; ") : "";
+  const objeciones = Array.isArray(a.objeciones) ? (a.objeciones as string[]).join("; ") : "";
+  const busca = String(a.busca_ahora ?? "");
+
+  const prompt = `Escribís el chat de ${inmo}, una inmobiliaria de Rosario, EN NOMBRE de la inmobiliaria (plural, "somos de ${inmo}"), en rioplatense (vos, tenés), cálido y natural, mensajes cortos, SIN emojis, sin sonar a bot ni a formulario.
+El cliente ${nombre} fue a ver una propiedad (${prop || "una propiedad"}) y ya pasó un día. Esto sacamos de cómo le fue en la visita:
+- ¿Le gustó?: ${gusto || "no sabemos"}
+- Le gustó: ${positivos || "—"}
+- Objeciones / lo que no le cerró: ${objeciones || "—"}
+- Qué busca ahora / ajustaría: ${busca || "—"}
+Escribí UN mensaje de seguimiento para mandarle ahora (al día siguiente de la visita):
+- Si le gustó: preguntale qué le pareció y, con calidez y sin presionar, empujalo a avanzar (coordinar los próximos pasos).
+- Si no le gustó o quedó dudoso: tomá sus objeciones y lo que busca ahora, y ofrecele buscar otras opciones más afines.
+Devolvé SOLO el texto del mensaje, sin comillas ni encabezados.`;
+
+  const ia = await completarTexto(prompt);
+  if (ia) return sinEmojis(ia);
+  return gusto === "si"
+    ? `Hola${nombre ? " " + nombre : ""}! Somos de ${inmo}. ¿Cómo viste la propiedad que visitaste? Si te gustó, podemos avanzar con los próximos pasos. ¿Lo coordinamos?`
+    : `Hola${nombre ? " " + nombre : ""}! Somos de ${inmo}. ¿Qué te pareció la visita? Si no era del todo lo que buscás, contanos qué ajustarías y te buscamos otras opciones.`;
+}
+
+// Seguimiento post-visita: 24 hs después del análisis, el bot le manda al cliente el mensaje
+// personalizado (una sola vez, guarda por seguimiento_at). Lo guarda también en el chat del panel.
+async function enviarSeguimientos(inmos: Record<string, string>): Promise<number> {
+  const corte = new Date(Date.now() - DIA_MS).toISOString(); // analizada hace 24 hs o más
+  const { data } = await db
+    .from("visitas")
+    .select("id, prop, lead_id, analisis, leads!inner(canal, canal_user_id, inmobiliaria_id, nombre)")
+    .lte("analizada_at", corte)
+    .not("analisis", "is", null)
+    .is("seguimiento_at", null);
+
+  let n = 0;
+  for (const row of (data ?? []) as unknown as SeguiRow[]) {
+    const lead = leadDe(row);
+    if (!lead || lead.canal !== "telegram" || !lead.canal_user_id) continue;
+    const inmo = inmos[lead.inmobiliaria_id ?? ""] || "la inmobiliaria";
+    const a = (row.analisis && typeof row.analisis === "object" ? row.analisis : {}) as Record<string, unknown>;
+    const texto = await armarSeguimiento(a, inmo, lead.nombre || "", row.prop);
+
+    const mid = await enviarTelegramTexto(lead.canal_user_id, texto, TG_TOKEN);
+    if (mid === null) continue; // no se pudo enviar → no marcamos, se reintenta en la próxima pasada
+
+    const ts = tsLabel();
+    if (row.lead_id) {
+      const { data: conv } = await db.from("conversaciones").select("id").eq("lead_id", row.lead_id).maybeSingle();
+      if (conv?.id) {
+        await db.from("mensajes").insert({ inmobiliaria_id: lead.inmobiliaria_id, conversacion_id: conv.id, who: "bot", agent: "bottelegram", texto, ts_label: ts });
+        await db.from("conversaciones").update({ ultimo_mensaje: texto.slice(0, 80), ultimo_label: ts }).eq("id", conv.id);
+      }
+    }
+    await db.from("visitas").update({ seguimiento_at: new Date().toISOString() }).eq("id", row.id);
+    n++;
   }
   return n;
 }
@@ -130,9 +198,10 @@ async function correr(req: Request) {
   const inmos = await inmoNombres();
   const recordatorio_1d = await recordar(1, "recordatorio_1d_at", inmos);
   const recordatorio_dia = arHora() >= 8 ? await recordar(0, "recordatorio_dia_at", inmos) : 0;
+  const seguimiento = await enviarSeguimientos(inmos);
   const basura = await marcarBasura();
 
-  return NextResponse.json({ ok: true, recordatorio_1d, recordatorio_dia, basura, hora_ar: arHora() });
+  return NextResponse.json({ ok: true, recordatorio_1d, recordatorio_dia, seguimiento, basura, hora_ar: arHora() });
 }
 
 export async function GET(req: Request) {
