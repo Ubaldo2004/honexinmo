@@ -468,14 +468,15 @@ async function asignarConv(convId: string, leadId: string | null, vendedor: stri
   }).eq("id", convId);
   if (leadId) {
     await db.from("leads").update({ asignado_a: asignadoA, asignado_label: vendedor, etapa: "Visita" }).eq("id", leadId);
-    await bumpScore(leadId, 100); // coordinó visita → lead caliente al máximo
+    await bumpScore(leadId, 85); // coordinó visita (el 100 queda para la venta/seña)
   }
 }
 
 // Score del lead = qué tan avanzado está en el embudo (0–100). Se calcula con HITOS reales
 // (no con el LLM, así es confiable): cada hito sube el piso del score. Sólo SUBE — nunca baja
-// (max), para no pisar un ajuste manual del operador. Hitos: escribió 15 · buscó 40 ·
-// eligió/pidió fotos 60 · dio disponibilidad 80 · coordinó visita 100.
+// (max), para no pisar un ajuste manual del operador. Hitos del bot: escribió 15 · buscó 35 ·
+// eligió/pidió fotos 55 · dio disponibilidad 70 · coordinó visita 85. El 100 es VENTA CERRADA
+// (etapa Operación), que se marca desde el panel — ver SCORE_POR_ETAPA en leads/actions.ts.
 async function bumpScore(leadId: string | null, piso: number) {
   if (!leadId) return;
   const { data } = await db.from("leads").select("score").eq("id", leadId).maybeSingle();
@@ -531,7 +532,7 @@ async function registrarBusqueda(leadId: string | null, criterios: string, resul
   if (lead && lead.etapa === "Calificación") {
     await db.from("leads").update({ etapa: "Búsqueda" }).eq("id", leadId);
   }
-  await bumpScore(leadId, 40); // hizo una búsqueda → ya dio criterios
+  await bumpScore(leadId, 35); // hizo una búsqueda → ya dio criterios
   return (bq?.id as string) ?? null;
 }
 
@@ -630,7 +631,7 @@ async function responderBot(convId: string, chatId: number | string) {
       const anclaValue = elegida ? JSON.stringify(elegida) : raw;
       if (anclaValue) {
         await db.from("leads").update({ ancla: anclaValue }).eq("id", conv.lead_id as string);
-        await bumpScore(conv.lead_id as string, 60); // eligió una propiedad
+        await bumpScore(conv.lead_id as string, 55); // eligió una propiedad
       }
     }
   }
@@ -665,7 +666,7 @@ async function responderBot(convId: string, chatId: number | string) {
     // No depende de que el LLM emita [[INTERES]] → confiable.
     if (anclaTentativa && conv.lead_id) {
       await db.from("leads").update({ ancla: JSON.stringify(anclaTentativa) }).eq("id", conv.lead_id as string);
-      await bumpScore(conv.lead_id as string, 60); // pidió ver fotos de una propiedad
+      await bumpScore(conv.lead_id as string, 55); // pidió ver fotos de una propiedad
     }
   }
 
@@ -676,7 +677,7 @@ async function responderBot(convId: string, chatId: number | string) {
     reply = reply.replace(/\[\[DISPO:[\s\S]*?\]\]/i, "").trim();
     if (conv.lead_id && dispo) {
       await db.from("leads").update({ disponibilidad: dispo }).eq("id", conv.lead_id as string);
-      await bumpScore(conv.lead_id as string, 80); // dio disponibilidad para la visita
+      await bumpScore(conv.lead_id as string, 70); // dio disponibilidad para la visita
     }
   }
 

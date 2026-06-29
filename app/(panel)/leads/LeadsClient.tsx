@@ -8,6 +8,12 @@ import { actualizarLead, eliminarLead } from "./actions";
 
 const ETAPAS = ["Calificación", "Búsqueda", "Visita", "Seguimiento", "Operación"];
 
+// Piso de score por etapa (espejo de SCORE_POR_ETAPA en leads/actions.ts) para reflejar
+// el cambio al instante en la barra. El 100 es Operación = venta cerrada.
+const SCORE_POR_ETAPA: Record<string, number> = {
+  Calificación: 15, Búsqueda: 35, Visita: 85, Seguimiento: 90, Operación: 100,
+};
+
 const ec: Record<string, string> = {
   Calificación: "text-zinc-300 bg-white/5 border-white/10",
   Búsqueda: "text-brand-300 bg-brand-400/10 border-brand-400/30",
@@ -25,7 +31,8 @@ export default function LeadsClient({ leads: initial }: { leads: Lead[] }) {
   async function setEtapa(l: Lead, etapa: string) {
     if (!l.id) return;
     const prev = leads;
-    setLeads((p) => p.map((x) => (x.id === l.id ? { ...x, etapa } : x)));
+    const piso = SCORE_POR_ETAPA[etapa] ?? 0;
+    setLeads((p) => p.map((x) => (x.id === l.id ? { ...x, etapa, score: Math.max(x.score, piso) } : x)));
     const res = await actualizarLead(l.id, { etapa });
     if (!res.ok) {
       alert(res.error ?? "No se pudo cambiar la etapa");

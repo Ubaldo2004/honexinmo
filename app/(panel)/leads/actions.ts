@@ -2,6 +2,17 @@
 
 import { createClient } from "@/lib/supabase/server";
 
+// Piso de score por etapa (mismo embudo que el bot, ver bumpScore en api/telegram/route.ts).
+// Mover la etapa a mano desde el panel sube el score al piso de esa etapa. El 100 = Operación
+// (venta cerrada / seña). Sólo SUBE: no baja un score ya alcanzado ni pisa un ajuste manual.
+const SCORE_POR_ETAPA: Record<string, number> = {
+  Calificación: 15,
+  Búsqueda: 35,
+  Visita: 85,
+  Seguimiento: 90,
+  Operación: 100,
+};
+
 // Edita campos del lead. RLS: sólo pasa si el lead es del tenant del usuario.
 export async function actualizarLead(
   id: string,
@@ -26,6 +37,18 @@ export async function actualizarLead(
   if (Object.keys(upd).length === 0) return { ok: true };
 
   const supabase = await createClient();
+
+  // Si cambia la etapa y NO se mandó un score explícito, llevamos el score al piso de
+  // esa etapa (sólo si sube). Así marcar "Operación" pone 100 sin tener que tocar el score.
+  if (patch.etapa !== undefined && patch.score === undefined) {
+    const piso = SCORE_POR_ETAPA[patch.etapa];
+    if (piso !== undefined) {
+      const { data: cur } = await supabase.from("leads").select("score").eq("id", id).maybeSingle();
+      const actual = typeof cur?.score === "number" ? (cur.score as number) : 0;
+      if (piso > actual) upd.score = piso;
+    }
+  }
+
   const { error } = await supabase.from("leads").update(upd).eq("id", id);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
