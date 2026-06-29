@@ -7,15 +7,18 @@ import { agregarRango, quitarRango } from "./actions";
 const DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
 
 type Range = { id: string; usuarioId: string; dia: string; horaInicio: string; horaFin: string };
+type Turno = { agente: string; fecha: string; lead: string; prop: string };
 type Vend = { id: string; nombre: string; rol: string };
 
 export default function AgendaClient({
   vendedores,
   slots,
+  turnos,
   currentUserId,
 }: {
   vendedores: Vend[];
   slots: Range[];
+  turnos: Turno[];
   currentUserId: string;
 }) {
   const [ranges, setRanges] = useState<Range[]>(slots);
@@ -31,6 +34,7 @@ export default function AgendaClient({
         // en solo lectura, y únicamente los días con horarios cargados.
         const editable = v.id === currentUserId;
         const vendRanges = ranges.filter((r) => r.usuarioId === v.id);
+        const vendTurnos = turnos.filter((t) => t.agente === v.nombre);
         const dias = editable ? DIAS : DIAS.filter((d) => vendRanges.some((r) => r.dia === d));
         return (
           <Card key={v.id} className="p-4">
@@ -41,6 +45,20 @@ export default function AgendaClient({
               </div>
               {!editable && <span className="text-[11px] text-zinc-600">solo lectura</span>}
             </div>
+            {vendTurnos.length > 0 && (
+              <div className="mb-3 rounded-lg border border-warn/30 bg-warn/5 p-2">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-warn">Turnos agendados</div>
+                <div className="space-y-1">
+                  {vendTurnos.map((t, i) => (
+                    <div key={i} className="flex flex-wrap items-center gap-x-2 text-[12px]">
+                      <span className="font-medium text-zinc-200">🗓 {t.fecha || "a coordinar"}</span>
+                      {t.lead && <span className="text-zinc-400">· {t.lead}</span>}
+                      {t.prop && <span className="text-zinc-500">· {t.prop}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {dias.length === 0 ? (
               <div className="text-[12px] text-zinc-600">Sin horarios cargados.</div>
             ) : (

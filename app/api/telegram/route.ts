@@ -275,6 +275,19 @@ function zonaCorta(u?: string): string {
   return parts[parts.length - 1] || String(u);
 }
 
+// Etiqueta legible de la propiedad-ancla (para la visita): si es JSON, "tipo en zona"; si es texto, tal cual.
+function anclaLabelTexto(ancla: string | null | undefined): string {
+  if (!ancla) return "Propiedad";
+  const t = ancla.trim();
+  if (t.startsWith("{")) {
+    try {
+      const p = JSON.parse(t) as { tipo?: string; ubicacion?: string };
+      return `${p.tipo || "Propiedad"} en ${zonaCorta(p.ubicacion)}`;
+    } catch { return ancla; }
+  }
+  return ancla;
+}
+
 // Preferencias que el cliente puede pedir → cómo detectarlas en el texto y en la propiedad.
 // pred(p) mira amenities (objeto que manda el motor) + tags + campos sueltos.
 const PREFERENCIAS: { keys: string[]; pred: (p: Prop, am: Record<string, unknown>) => boolean }[] = [
@@ -676,6 +689,17 @@ async function responderBot(convId: string, chatId: number | string) {
     }
     const reason = slotLabel ? `Visita ${slotLabel} · ${nombre}` : `Derivado a ${nombre}`;
     await asignarConv(convId, (conv.lead_id as string) ?? null, nombre, reason);
+    // Crear la visita → le aparece al agente en su Agenda (sus turnos), así no se olvida.
+    if (conv.lead_id) {
+      const { data: ld } = await db.from("leads").select("nombre, ancla").eq("id", conv.lead_id as string).maybeSingle();
+      const dispoCliente = (md ? md[1].trim() : null) ?? leadRow?.disponibilidad ?? null;
+      const { error: ev } = await db.from("visitas").insert({
+        inmobiliaria_id: INMO_ID, lead_id: conv.lead_id as string, lead_label: (ld?.nombre as string) ?? null,
+        prop: anclaLabelTexto(ld?.ancla as string | null), agente: nombre,
+        fecha: slotLabel ?? dispoCliente ?? "a coordinar",
+      });
+      if (ev) console.error("crear visita:", ev.message);
+    }
     reply = slotLabel
       ? `¡Listo! Lo coordinamos con ${nombre}, que tiene libre el ${slotLabel}. En un rato se contacta con vos para cerrar la visita. Cualquier cosa, acá estamos.`
       : `¡Listo! Lo coordinamos con ${nombre}. En un rato se contacta con vos para arreglar el día y horario de la visita. Cualquier cosa, acá estamos.`;
