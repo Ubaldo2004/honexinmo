@@ -468,7 +468,19 @@ async function asignarConv(convId: string, leadId: string | null, vendedor: stri
   }).eq("id", convId);
   if (leadId) {
     await db.from("leads").update({ asignado_a: asignadoA, asignado_label: vendedor, etapa: "Visita" }).eq("id", leadId);
+    await bumpScore(leadId, 100); // coordinó visita → lead caliente al máximo
   }
+}
+
+// Score del lead = qué tan avanzado está en el embudo (0–100). Se calcula con HITOS reales
+// (no con el LLM, así es confiable): cada hito sube el piso del score. Sólo SUBE — nunca baja
+// (max), para no pisar un ajuste manual del operador. Hitos: escribió 15 · buscó 40 ·
+// eligió/pidió fotos 60 · dio disponibilidad 80 · coordinó visita 100.
+async function bumpScore(leadId: string | null, piso: number) {
+  if (!leadId) return;
+  const { data } = await db.from("leads").select("score").eq("id", leadId).maybeSingle();
+  const actual = typeof data?.score === "number" ? (data.score as number) : 0;
+  if (piso > actual) await db.from("leads").update({ score: piso }).eq("id", leadId);
 }
 
 // ── Match cliente ↔ vendedor por agenda (Fase 3) ──────────────
@@ -519,6 +531,7 @@ async function registrarBusqueda(leadId: string | null, criterios: string, resul
   if (lead && lead.etapa === "Calificación") {
     await db.from("leads").update({ etapa: "Búsqueda" }).eq("id", leadId);
   }
+  await bumpScore(leadId, 40); // hizo una búsqueda → ya dio criterios
   return (bq?.id as string) ?? null;
 }
 
@@ -615,7 +628,10 @@ async function responderBot(convId: string, chatId: number | string) {
       const idx = parseInt(raw, 10);
       const elegida = Number.isFinite(idx) ? ultimasMostradas[idx - 1] : undefined;
       const anclaValue = elegida ? JSON.stringify(elegida) : raw;
-      if (anclaValue) await db.from("leads").update({ ancla: anclaValue }).eq("id", conv.lead_id as string);
+      if (anclaValue) {
+        await db.from("leads").update({ ancla: anclaValue }).eq("id", conv.lead_id as string);
+        await bumpScore(conv.lead_id as string, 60); // eligió una propiedad
+      }
     }
   }
 
@@ -649,6 +665,7 @@ async function responderBot(convId: string, chatId: number | string) {
     // No depende de que el LLM emita [[INTERES]] → confiable.
     if (anclaTentativa && conv.lead_id) {
       await db.from("leads").update({ ancla: JSON.stringify(anclaTentativa) }).eq("id", conv.lead_id as string);
+      await bumpScore(conv.lead_id as string, 60); // pidió ver fotos de una propiedad
     }
   }
 
@@ -657,7 +674,10 @@ async function responderBot(convId: string, chatId: number | string) {
   if (md) {
     const dispo = md[1].trim();
     reply = reply.replace(/\[\[DISPO:[\s\S]*?\]\]/i, "").trim();
-    if (conv.lead_id && dispo) await db.from("leads").update({ disponibilidad: dispo }).eq("id", conv.lead_id as string);
+    if (conv.lead_id && dispo) {
+      await db.from("leads").update({ disponibilidad: dispo }).eq("id", conv.lead_id as string);
+      await bumpScore(conv.lead_id as string, 80); // dio disponibilidad para la visita
+    }
   }
 
   const ma = reply.match(/\[ASIGNAR:\s*([\s\S]*?)\]/i);
@@ -767,7 +787,7 @@ async function findOrCreateLead(chat: TgChat, from?: TgFrom, ancla?: string) {
   const nombre = [from?.first_name, from?.last_name].filter(Boolean).join(" ") || from?.username || chat?.title || "Lead Telegram";
   const { data, error } = await db.from("leads").insert({
     inmobiliaria_id: INMO_ID, nombre, canal: "telegram", canal_user_id: chatId,
-    etapa: "Calificación", score: 0, asignado_label: "bottelegram",
+    etapa: "Calificación", score: 15, asignado_label: "bottelegram",
     origen: ancla ? "Campaña" : "Telegram", ancla: ancla ?? null,
   }).select("id").single();
   if (error) throw new Error("crear lead: " + error.message);

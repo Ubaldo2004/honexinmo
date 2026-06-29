@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Card, anclaLabel } from "@/components/panel/ui";
+import { Card, anclaLabel, anclaData, type AnclaProp } from "@/components/panel/ui";
+import { FichaModal } from "@/components/panel/FichaModal";
 import type { Lead } from "@/lib/data/types";
 import { actualizarLead, eliminarLead } from "./actions";
 
@@ -19,6 +20,7 @@ export default function LeadsClient({ leads: initial }: { leads: Lead[] }) {
   const [leads, setLeads] = useState<Lead[]>(initial);
   const [editing, setEditing] = useState<Lead | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [ficha, setFicha] = useState<AnclaProp | null>(null);
 
   async function setEtapa(l: Lead, etapa: string) {
     if (!l.id) return;
@@ -102,7 +104,21 @@ export default function LeadsClient({ leads: initial }: { leads: Lead[] }) {
                       <span className="font-mono text-xs text-zinc-400">{l.score}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-zinc-300">{anclaLabel(l.ancla)}</td>
+                  <td className="px-4 py-3 text-zinc-300">
+                    {(() => {
+                      const d = anclaData(l.ancla);
+                      return d ? (
+                        <button
+                          onClick={() => setFicha(d)}
+                          className="rounded-md border border-line bg-ink-850 px-2 py-1 text-[12px] text-zinc-200 transition hover:border-brand-400/40 hover:bg-brand-400/10"
+                        >
+                          {anclaLabel(l.ancla)} <span className="text-zinc-500">↗</span>
+                        </button>
+                      ) : (
+                        anclaLabel(l.ancla)
+                      );
+                    })()}
+                  </td>
                   <td className="px-4 py-3"><span className="font-mono text-[11px] text-zinc-500">{l.origen || "—"}</span></td>
                   <td className="px-4 py-3"><span className={l.asignado === "bot" ? "text-brand-300" : "text-zinc-300"}>{l.asignado}</span></td>
                   <td className="px-4 py-3">
@@ -131,6 +147,7 @@ export default function LeadsClient({ leads: initial }: { leads: Lead[] }) {
       </Card>
 
       {editing && <EditModal lead={editing} onClose={() => setEditing(null)} onSaved={onSaved} />}
+      {ficha && <FichaModal prop={ficha} onClose={() => setFicha(null)} />}
     </>
   );
 }
