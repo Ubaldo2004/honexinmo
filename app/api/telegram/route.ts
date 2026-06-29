@@ -865,7 +865,7 @@ export async function POST(req: Request) {
     const got = req.headers.get("x-telegram-bot-api-secret-token");
     if (got !== WEBHOOK_SECRET) return new NextResponse("forbidden", { status: 403 });
   }
-  let update: { message?: TgMessage; edited_message?: TgMessage };
+  let update: { update_id?: number; message?: TgMessage; edited_message?: TgMessage };
   try {
     update = await req.json();
   } catch {
@@ -873,6 +873,17 @@ export async function POST(req: Request) {
   }
   const msg = update?.message ?? update?.edited_message;
   if (msg && msg.chat) {
+    // Idempotencia: registramos el update_id ANTES de procesar. Si ya estaba, es un
+    // reenvío de Telegram → no lo procesamos de nuevo (evita lead/respuesta/costo doble).
+    // Fail-open: si el dedupe falla por otra cosa, igual procesamos (no perder mensajes).
+    const updateId = update?.update_id;
+    if (typeof updateId === "number") {
+      const { error } = await db.from("telegram_updates").insert({ update_id: updateId });
+      if (error) {
+        if (error.code === "23505") return NextResponse.json({ ok: true }); // duplicado → ack y listo
+        console.error("dedupe telegram:", error.message);
+      }
+    }
     after(async () => {
       try { await handleMessage(msg); } catch (e) { await reportarError("bot telegram", e); }
     });
