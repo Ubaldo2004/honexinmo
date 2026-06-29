@@ -9,6 +9,8 @@ import { after } from "next/server";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Anthropic from "@anthropic-ai/sdk";
+import { reportarError } from "@/lib/alert";
+import { sinEmojis, parseDispo } from "@/lib/bot/text";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -442,16 +444,6 @@ async function enviarFoto(chatId: number | string, fotoUrl: string, caption?: st
   }
 }
 
-// Saca cualquier emoji del texto. Garantía dura: el bot NUNCA manda emojis,
-// aunque el modelo igual los meta.
-function sinEmojis(t: string): string {
-  return t
-    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2300}-\u{23FF}\u{2190}-\u{21FF}\u{FE00}-\u{FE0F}\u{200D}]/gu, "")
-    .replace(/ {2,}/g, " ")
-    .replace(/[ \t]+\n/g, "\n")
-    .trim();
-}
-
 // Manda una lista de mensajes (uno por uno) y guarda cada uno como mensaje del bot.
 async function enviarMensajes(convId: string, chatId: number | string, mensajes: string[]) {
   for (const m of mensajes) {
@@ -480,20 +472,6 @@ async function asignarConv(convId: string, leadId: string | null, vendedor: stri
 }
 
 // ── Match cliente ↔ vendedor por agenda (Fase 3) ──────────────
-const DIAS_SEM = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
-function sinAcento(s: string) { return s.normalize("NFD").replace(/[̀-ͯ]/g, ""); }
-
-// "martes tarde, jueves mañana" → [{dia:"martes", franja:"tarde"}, ...] (días canónicos).
-function parseDispo(s: string): { dia: string; franja: string }[] {
-  const out: { dia: string; franja: string }[] = [];
-  for (const chunk of s.toLowerCase().split(/[,;]|\sy\s/)) {
-    const c = sinAcento(chunk);
-    const dia = DIAS_SEM.find((d) => c.includes(sinAcento(d)));
-    const franja = /man|maty/.test(c) ? "mañana" : /tard|noch|vesper/.test(c) ? "tarde" : null;
-    if (dia && franja && !out.some((o) => o.dia === dia && o.franja === franja)) out.push({ dia, franja });
-  }
-  return out;
-}
 
 // Busca un vendedor del tenant libre en alguno de los slots pedidos → {nombre, slot} o null.
 // La agenda del vendedor son RANGOS DE HORA (hora_inicio..hora_fin). El cliente pide
@@ -696,16 +674,22 @@ async function responderBot(convId: string, chatId: number | string) {
     }
     const reason = slotLabel ? `Visita ${slotLabel} · ${nombre}` : `Derivado a ${nombre}`;
     await asignarConv(convId, (conv.lead_id as string) ?? null, nombre, reason);
-    // Crear la visita → le aparece al agente en su Agenda (sus turnos), así no se olvida.
+    // Crear/actualizar la visita → le aparece al agente en su Agenda. Dedupe por lead:
+    // si ya hay una visita para este lead, la actualizamos (no creamos duplicados si [ASIGNAR]
+    // se emite más de una vez / se re-coordina).
     if (conv.lead_id) {
       const { data: ld } = await db.from("leads").select("nombre, ancla").eq("id", conv.lead_id as string).maybeSingle();
       const dispoCliente = (md ? md[1].trim() : null) ?? leadRow?.disponibilidad ?? null;
-      const { error: ev } = await db.from("visitas").insert({
+      const visitaData = {
         inmobiliaria_id: INMO_ID, lead_id: conv.lead_id as string, lead_label: (ld?.nombre as string) ?? null,
         prop: anclaLabelTexto(ld?.ancla as string | null), agente: nombre,
         fecha: slotLabel ?? dispoCliente ?? "a coordinar",
-      });
-      if (ev) console.error("crear visita:", ev.message);
+      };
+      const { data: prev } = await db.from("visitas").select("id").eq("lead_id", conv.lead_id as string).limit(1);
+      const ev = prev && prev.length
+        ? (await db.from("visitas").update(visitaData).eq("id", prev[0].id as string)).error
+        : (await db.from("visitas").insert(visitaData)).error;
+      if (ev) console.error("guardar visita:", ev.message);
     }
     reply = slotLabel
       ? `¡Listo! Lo coordinamos con ${nombre}, que tiene libre el ${slotLabel}. En un rato se contacta con vos para cerrar la visita. Cualquier cosa, acá estamos.`
@@ -869,7 +853,7 @@ export async function POST(req: Request) {
   const msg = update?.message ?? update?.edited_message;
   if (msg && msg.chat) {
     after(async () => {
-      try { await handleMessage(msg); } catch (e) { console.error("tg handle:", (e as Error).message); }
+      try { await handleMessage(msg); } catch (e) { await reportarError("bot telegram", e); }
     });
   }
   return NextResponse.json({ ok: true });

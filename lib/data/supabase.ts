@@ -114,22 +114,24 @@ export class SupabaseRepository implements HonexRepository {
 
   // ---- tenant data (RLS) ----
   async getConversaciones(): Promise<Conversacion[]> {
-    const { data, error } = await this.db
-      .from("conversaciones")
-      .select("id, lead_id, estado, reason, priority, asignado_label, unread, ultimo_mensaje, ultimo_label, leads(nombre, telefono, ancla, origen, mood, score, disponibilidad, creado_at)");
-    if (error) throw error;
-
-    // Ordenar por lead más nuevo primero (los leads nuevos van arriba). `conversaciones` no tiene
-    // timestamp y `ultimo_label` es texto de hora (ordena mal), así que usamos leads.creado_at.
-    const creadoDe = (r: { leads?: unknown }) =>
-      ((Array.isArray(r.leads) ? r.leads[0] : r.leads) as { creado_at?: string } | null)?.creado_at ?? "";
-    const rows = [...(data ?? [])].sort((a, b) => {
-      const ca = creadoDe(a), cb = creadoDe(b);
-      return ca < cb ? 1 : ca > cb ? -1 : 0;
-    });
+    const SEL = "id, lead_id, estado, reason, priority, asignado_label, unread, ultimo_mensaje, ultimo_label, leads(nombre, telefono, ancla, origen, mood, score, disponibilidad, creado_at)";
+    // Orden por última actividad (actualizada_at, migración 0010 → la conversación que recibió un
+    // mensaje recién sube al tope). Si esa columna todavía no existe, fallback: lead más nuevo arriba.
+    const ordered = await this.db.from("conversaciones").select(SEL).order("actualizada_at", { ascending: false });
+    let rows = ordered.data ?? [];
+    if (ordered.error) {
+      const fb = await this.db.from("conversaciones").select(SEL);
+      if (fb.error) throw fb.error;
+      const creadoDe = (r: { leads?: unknown }) =>
+        ((Array.isArray(r.leads) ? r.leads[0] : r.leads) as { creado_at?: string } | null)?.creado_at ?? "";
+      rows = [...(fb.data ?? [])].sort((a, b) => {
+        const ca = creadoDe(a), cb = creadoDe(b);
+        return ca < cb ? 1 : ca > cb ? -1 : 0;
+      });
+    }
 
     // Última búsqueda (criterios) por lead → referencia para el vendedor en el handoff.
-    const leadIds = (data ?? []).map((r) => r.lead_id as string).filter(Boolean);
+    const leadIds = rows.map((r) => r.lead_id as string).filter(Boolean);
     const critByLead: Record<string, string> = {};
     if (leadIds.length) {
       const { data: bq } = await this.db
