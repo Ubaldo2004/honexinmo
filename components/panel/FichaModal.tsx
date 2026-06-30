@@ -49,6 +49,27 @@ export function FichaModal({ prop, onClose }: { prop: AnclaProp; onClose: () => 
               ))}
             </div>
           )}
+          {(prop.contacto_telefono || prop.contacto_email || prop.contacto_nombre) && (
+            <div className="mt-3 rounded-lg border border-warn/30 bg-warn/10 p-3 text-xs">
+              <div className="mb-1.5 font-semibold text-warn">🤝 Inmobiliaria dueña (Red Tokko) — coordinar la visita con ellos</div>
+              {(prop.contacto_nombre || prop.inmobiliaria) && (
+                <div className="text-zinc-100">{prop.contacto_nombre || prop.inmobiliaria}</div>
+              )}
+              {prop.contacto_telefono && (
+                <div className="mt-1"><span className="text-zinc-500">Tel: </span>
+                  <a href={`tel:${String(prop.contacto_telefono).replace(/[^0-9+]/g, "")}`} className="text-brand-200 underline">{prop.contacto_telefono}</a>
+                </div>
+              )}
+              {prop.contacto_email && (
+                <div><span className="text-zinc-500">Email: </span>
+                  <a href={`mailto:${prop.contacto_email}`} className="text-brand-200 underline break-all">{prop.contacto_email}</a>
+                </div>
+              )}
+              {prop.contacto_horario && <div className="mt-1 text-zinc-400">{prop.contacto_horario}</div>}
+              {prop.comision != null && prop.comision !== "" && <div className="text-zinc-400">Comisión: {prop.comision}%</div>}
+              <div className="mt-1.5 text-[10px] text-zinc-500">Solo para el equipo — no enviar al cliente.</div>
+            </div>
+          )}
           {prop.url ? (
             <a href={prop.url} target="_blank" rel="noopener noreferrer" className="mt-3 block rounded-lg border border-brand-400/40 bg-brand-400/10 py-2 text-center text-xs font-semibold text-brand-200 transition hover:bg-brand-400/20">
               Ver ficha en Tokko ↗

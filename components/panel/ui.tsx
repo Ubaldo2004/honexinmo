@@ -51,6 +51,11 @@ export type AnclaProp = {
   antiguedad?: number | null; expensas?: number | string | null; condicion?: string | null;
   orientacion?: string | null; disposicion?: string | null; origen?: string;
   foto?: string | null; url?: string | null;
+  // Si es de la RED Tokko: datos de la inmobiliaria dueña, para que el operador la contacte
+  // y coordine la visita. Es info INTERNA del panel — nunca se le manda al cliente.
+  inmobiliaria?: string | null; contacto_nombre?: string | null;
+  contacto_telefono?: string | null; contacto_email?: string | null;
+  contacto_horario?: string | null; comision?: number | string | null;
 };
 
 export function anclaData(ancla?: string | null): AnclaProp | null {
