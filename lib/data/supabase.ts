@@ -19,6 +19,7 @@ import type {
   Operacion,
   Visita,
   VisitaItem,
+  SeguimientoItem,
   Rol,
   Prioridad,
   EstadoConversacion,
@@ -376,6 +377,50 @@ export class SupabaseRepository implements HonexRepository {
         duracionSeg: (r.duracion_seg as number) ?? null,
         analisis: (r.analisis as VisitaItem["analisis"]) ?? null,
         fechaVisita: (r.fecha_visita as string) ?? null,
+      };
+    });
+  }
+
+  async getSeguimientos(): Promise<SeguimientoItem[]> {
+    // Leads en etapa Seguimiento (RLS filtra por tenant/rol).
+    const { data: leads } = await this.db.from("leads").select("id, nombre").eq("etapa", "Seguimiento");
+    const leadIds = (leads ?? []).map((l) => l.id as string);
+    if (!leadIds.length) return [];
+    const nombre = new Map<string, string>();
+    for (const l of leads ?? []) nombre.set(l.id as string, (l.nombre as string) ?? "—");
+
+    // Conversación de cada lead (para el botón "Abrir chat").
+    const { data: convs } = await this.db.from("conversaciones").select("id, lead_id").in("lead_id", leadIds);
+    const convByLead = new Map<string, string>();
+    for (const c of convs ?? []) if (!convByLead.has(c.lead_id as string)) convByLead.set(c.lead_id as string, c.id as string);
+
+    // Última visita analizada de cada lead. `seguimiento_at`/`fecha_visita` son de 0012/0013:
+    // si no están, reintentamos sin ellas (resiliente).
+    const base = "lead_id, prop, analisis, creada_at";
+    const pedir = async (cols: string) => {
+      const r = await this.db.from("visitas").select(cols).in("lead_id", leadIds).not("analisis", "is", null).order("creada_at", { ascending: false });
+      return { rows: (r.data ?? null) as Record<string, unknown>[] | null, error: r.error };
+    };
+    const primero = await pedir(`${base}, seguimiento_at, fecha_visita`);
+    const rows = primero.error ? (await pedir(base)).rows : primero.rows;
+
+    const visByLead = new Map<string, Record<string, unknown>>();
+    for (const v of rows ?? []) { const lid = v.lead_id as string; if (!visByLead.has(lid)) visByLead.set(lid, v); }
+
+    return leadIds.map((lid): SeguimientoItem => {
+      const v = visByLead.get(lid);
+      const a = (v?.analisis && typeof v.analisis === "object" ? v.analisis : {}) as Record<string, unknown>;
+      return {
+        leadId: lid,
+        lead: nombre.get(lid) ?? "—",
+        convId: convByLead.get(lid) ?? null,
+        prop: (v?.prop as string) ?? "",
+        leGusto: (a.le_gusto as string) ?? null,
+        prob: typeof a.prob === "number" ? (a.prob as number) : null,
+        buscaAhora: (a.busca_ahora as string) ?? null,
+        siguiente: (a.siguiente as string) ?? null,
+        seguimientoEnviado: !!v?.seguimiento_at,
+        fecha: (v?.fecha_visita as string) ?? "",
       };
     });
   }

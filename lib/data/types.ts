@@ -173,6 +173,21 @@ export interface VisitaItem {
   fechaVisita?: string | null; // fecha/hora real de la visita (ISO) — editable, para los recordatorios
 }
 
+// Un lead en etapa Seguimiento (post-visita) con lo que salió del análisis de la visita.
+// Alimenta la sección Seguimiento: qué visitó, si le gustó, prob de cierre, próximo paso.
+export interface SeguimientoItem {
+  leadId: string;
+  lead: string;
+  convId: string | null;        // para abrir el chat
+  prop: string;                 // propiedad que visitó
+  leGusto: string | null;       // "si" | "no" | "dudoso"
+  prob: number | null;          // probabilidad de cierre 0–100
+  buscaAhora: string | null;    // qué busca ahora / ajustaría
+  siguiente: string | null;     // próximo paso sugerido
+  seguimientoEnviado: boolean;  // si el bot ya mandó el seguimiento (24hs)
+  fecha: string;                // fecha de la visita (ISO) si se conoce
+}
+
 /**
  * Toda lectura/escritura del panel pasa por este repositorio — NUNCA por llamadas
  * directas en los componentes. Hoy: implementación mock. Mañana: Supabase.
@@ -195,5 +210,6 @@ export interface HonexRepository {
   getOperaciones(): Promise<Operacion[]>;
   getVisita(): Promise<Visita>;
   getVisitas(): Promise<VisitaItem[]>;
+  getSeguimientos(): Promise<SeguimientoItem[]>;
   getRoles(): Promise<Rol[]>;
 }

@@ -16,6 +16,7 @@ import type {
   Operacion,
   Visita,
   VisitaItem,
+  SeguimientoItem,
   Rol,
 } from "./types";
 import {
@@ -80,6 +81,9 @@ export class MockRepository implements HonexRepository {
     return VISITA;
   }
   async getVisitas(): Promise<VisitaItem[]> {
+    return [];
+  }
+  async getSeguimientos(): Promise<SeguimientoItem[]> {
     return [];
   }
   async getRoles(): Promise<Rol[]> {

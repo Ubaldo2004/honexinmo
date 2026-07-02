@@ -409,7 +409,8 @@ function formatearResultados(query: string, props: Prop[], dolar: number): strin
     if (p.antiguedad != null) det.push(Number(p.antiguedad) <= 0 ? "a estrenar" : `${p.antiguedad} años de antigüedad`);
     const detTxt = det.length ? `\n${det.join(" · ")}` : "";
     const dir = p.direccion ? `\nEstá en ${p.direccion}` : "";
-    return `Opción ${i + 1} — ${p.tipo || "Propiedad"} en ${zonaCorta(p.ubicacion)}\n${precio}${detTxt}${dir}`;
+    const ficha = p.url ? `\nFicha completa: ${p.url}` : "";
+    return `Opción ${i + 1} — ${p.tipo || "Propiedad"} en ${zonaCorta(p.ubicacion)}\n${precio}${detTxt}${dir}${ficha}`;
   });
   const cierre = `Esas son las que más se acercan a lo que buscás. ¿Alguna te copa para ir a verla? Si no, decime qué ajustar (zona, presupuesto, ambientes) y busco de nuevo.`;
   return [...fichas, cierre];
@@ -432,7 +433,8 @@ function fichaCaption(p: Prop, n: number, dolar: number): string {
   if (p.sup_total) det.push(`${p.sup_total} m² tot`);
   const detTxt = det.length ? `\n${det.join(" · ")}` : "";
   const dir = p.direccion ? `\nEn ${p.direccion}` : "";
-  return sinEmojis(`Opción ${n} — ${p.tipo || "Propiedad"} en ${zonaCorta(p.ubicacion)}${precio}${detTxt}${dir}`);
+  const ficha = p.url ? `\nFicha completa: ${p.url}` : "";
+  return sinEmojis(`Opción ${n} — ${p.tipo || "Propiedad"} en ${zonaCorta(p.ubicacion)}${precio}${detTxt}${dir}${ficha}`);
 }
 
 // Devuelve el message_id de Telegram (para poder editar ese mensaje luego), o null.

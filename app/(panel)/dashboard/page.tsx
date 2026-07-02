@@ -47,7 +47,7 @@ export default async function DashboardPage() {
       </div>
       <div className="mt-4">
         <Card className="p-5">
-          <div className="mb-3 flex items-center justify-between"><div className="font-semibold">Acciones pendientes</div><Link href="/acciones" className="cursor-pointer text-[11px] text-brand-300">ver todo</Link></div>
+          <div className="mb-3 flex items-center justify-between"><div className="font-semibold">Handoff · por atender</div><Link href="/acciones" className="cursor-pointer text-[11px] text-brand-300">ver todo</Link></div>
           <div className="space-y-2">
             {acciones.slice(0, 5).map((h) => (
               <div key={h.id} className="flex items-center gap-3 rounded-lg border border-line bg-ink-850 px-3 py-2">

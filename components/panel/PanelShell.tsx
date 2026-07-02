@@ -9,11 +9,12 @@ import { createClient } from "@/lib/supabase/client";
 const NAV = [
   { href: "/dashboard", t: "Dashboard", icon: I.Grid },
   { href: "/chats", t: "Chats", icon: I.Chat },
-  { href: "/acciones", t: "Acciones", icon: I.Hand, warn: true },
+  { href: "/acciones", t: "Handoff", icon: I.Hand, warn: true },
   { href: "/busquedas", t: "Búsquedas", icon: I.Search },
   { href: "/leads", t: "Leads", icon: I.Users },
   { href: "/anclas", t: "Anclas + ADS", icon: I.Megaphone },
   { href: "/visitas", t: "Visitas", icon: I.Doc },
+  { href: "/seguimiento", t: "Seguimiento", icon: I.Bell },
   { href: "/agenda", t: "Agenda", icon: I.Calendar },
   { href: "/operaciones", t: "Operaciones", icon: I.Coins },
   { href: "/usuarios", t: "Usuarios", icon: I.Settings },
